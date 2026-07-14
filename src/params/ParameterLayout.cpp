@@ -109,6 +109,34 @@ namespace slnt
             80.0f,
             juce::AudioParameterFloatAttributes().withLabel ("Hz")));
 
+        //======================================================================
+        // Knee: soft-knee width around Threshold. 0 dB = the original hard
+        // gate/duck transition; wider values blend the gain computer's
+        // target smoothly across the band instead of snapping at Threshold.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::knee, 1 },
+            "Knee",
+            juce::NormalisableRange<float> (0.0f, 24.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Duck: inverts the gain computer into a ducker (attenuate above
+        // Threshold instead of opening above it). Off by default so v0.1
+        // sessions/presets keep gating behaviour unchanged.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::duck, 1 },
+            "Duck",
+            false));
+
+        //======================================================================
+        // Listen: auditions the sidechain-filtered detection signal in place
+        // of the gated output. Off by default.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::listen, 1 },
+            "Listen",
+            false));
+
         return layout;
     }
 }

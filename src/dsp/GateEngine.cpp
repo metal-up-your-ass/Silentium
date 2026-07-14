@@ -113,7 +113,22 @@ void GateEngine::setScHighpassHz (float newFrequencyHz)
     scHighpassSmoothed.setTargetValue (newFrequencyHz);
 }
 
-void GateEngine::process (juce::dsp::AudioBlock<float>& block)
+void GateEngine::setKneeDb (float newKneeDb)
+{
+    lastKneeDb = newKneeDb;
+}
+
+void GateEngine::setDuckingMode (bool shouldDuck)
+{
+    duckingMode = shouldDuck;
+}
+
+void GateEngine::setListenMode (bool shouldListen)
+{
+    listenMode = shouldListen;
+}
+
+void GateEngine::process (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock)
 {
     const auto numSamples = block.getNumSamples();
 
@@ -121,10 +136,33 @@ void GateEngine::process (juce::dsp::AudioBlock<float>& block)
         return;
 
     // --- Detection path: SC HPF (sidechain-only, never touches the main
-    // signal) applied to a scratch copy of the input. ---
+    // signal) applied to a scratch copy of either the main input or an
+    // external sidechain input, if one was supplied and usable. ---
     juce::dsp::AudioBlock<float> detectionBlock (detectionBuffer);
     auto detectionSub = detectionBlock.getSubBlock (0, numSamples);
-    detectionSub.copyFrom (block);
+
+    const auto sidechainUsable = sidechainBlock != nullptr
+                                  && sidechainBlock->getNumChannels() > 0
+                                  && sidechainBlock->getNumSamples() == numSamples;
+
+    if (sidechainUsable)
+    {
+        // Splat: if the sidechain has fewer channels than the detection path
+        // (e.g. a mono sidechain feeding a stereo instance), reuse the last
+        // available sidechain channel for the remaining detection channels
+        // rather than leaving them holding stale data from a previous block.
+        const auto sidechainChannels = sidechainBlock->getNumChannels();
+
+        for (size_t channel = 0; channel < detectionSub.getNumChannels(); ++channel)
+        {
+            const auto sourceChannel = std::min (channel, sidechainChannels - 1);
+            detectionSub.getSingleChannelBlock (channel).copyFrom (sidechainBlock->getSingleChannelBlock (sourceChannel));
+        }
+    }
+    else
+    {
+        detectionSub.copyFrom (block);
+    }
 
     const auto scHz = clampBelowNyquist (scHighpassSmoothed.skip (static_cast<int> (numSamples)), sampleRate);
     *scHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, scHz, filterQ);
@@ -172,6 +210,16 @@ void GateEngine::process (juce::dsp::AudioBlock<float>& block)
 
     const auto numChannelsToProcess = block.getNumChannels();
 
+    // Knee: 0 dB reproduces the original hard-knee target exactly (openness
+    // snaps between 0 and 1 with gateOpen); a wider knee blends openness
+    // smoothly across a band centred on Threshold. Hold still overrides the
+    // blend to guarantee a fully open target for its whole duration in both
+    // cases - otherwise a dip into the knee band during Hold could sag the
+    // gain, defeating Hold's purpose.
+    const auto kneeDbNow = juce::jlimit (0.0f, maxKneeDb, lastKneeDb);
+    const auto hardKnee = kneeDbNow < 0.0001f;
+    const auto kneeLowerDb = lastThresholdDb - kneeDbNow * 0.5f;
+
     for (size_t sample = 0; sample < numSamples; ++sample)
     {
         const auto envelopeLinear = monoData[sample];
@@ -192,7 +240,30 @@ void GateEngine::process (juce::dsp::AudioBlock<float>& block)
                 gateOpen = false;
         }
 
-        const auto targetGainDb = gateOpen ? 0.0f : rangeDbNow;
+        float openness; // 0 == fully closed target, 1 == fully open target
+
+        if (hardKnee)
+        {
+            openness = gateOpen ? 1.0f : 0.0f;
+        }
+        else
+        {
+            const auto normalised = juce::jlimit (0.0f, 1.0f, (envelopeDb - kneeLowerDb) / kneeDbNow);
+            openness = normalised * normalised * (3.0f - 2.0f * normalised); // smoothstep
+        }
+
+        // Hold guarantees a fully open target for its whole duration,
+        // regardless of the knee curve's instantaneous value.
+        if (gateOpen && holdCounterSamples > 0)
+            openness = 1.0f;
+
+        // Duck inverts the target: attenuate above Threshold instead of
+        // opening above it, reusing the exact same detection/hysteresis/
+        // hold/knee machinery above.
+        if (duckingMode)
+            openness = 1.0f - openness;
+
+        const auto targetGainDb = juce::jmap (openness, rangeDbNow, 0.0f);
 
         if (targetGainDb > currentGainDb)
             currentGainDb = std::min (targetGainDb, currentGainDb + attackRatePerSample);
@@ -200,13 +271,30 @@ void GateEngine::process (juce::dsp::AudioBlock<float>& block)
             currentGainDb = std::max (targetGainDb, currentGainDb - releaseRatePerSample);
 
         const auto gainLinear = juce::Decibels::decibelsToGain (currentGainDb, minusInfinityDb);
+        const auto detectionChannelCount = detectionSub.getNumChannels();
 
         for (size_t channel = 0; channel < numChannelsToProcess; ++channel)
         {
             auto* channelData = block.getChannelPointer (channel);
             lookaheadDelay.pushSample (static_cast<int> (channel), channelData[sample]);
             const auto delayed = lookaheadDelay.popSample (static_cast<int> (channel));
-            channelData[sample] = delayed * gainLinear;
+
+            if (listenMode)
+            {
+                // Listen bypasses the gain computer entirely: audition
+                // exactly what the detector hears (post SC HPF, pre
+                // envelope-follower), not the gated/ducked main signal.
+                const auto detectionChannel = detectionChannelCount > 0
+                                                   ? std::min (channel, detectionChannelCount - 1)
+                                                   : channel;
+                channelData[sample] = detectionChannelCount > 0
+                                           ? detectionSub.getChannelPointer (detectionChannel)[sample]
+                                           : 0.0f;
+            }
+            else
+            {
+                channelData[sample] = delayed * gainLinear;
+            }
         }
     }
 }

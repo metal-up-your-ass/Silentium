@@ -17,8 +17,9 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // One knob + label per parameter, in signal-flow order.
+    // One knob + label per float parameter, in signal-flow order.
     struct Knob
     {
         juce::Slider slider;
@@ -26,7 +27,15 @@ private:
         std::unique_ptr<SliderAttachment> attachment;
     };
 
+    // One toggle button per bool parameter (Duck, Listen).
+    struct Toggle
+    {
+        juce::ToggleButton button;
+        std::unique_ptr<ButtonAttachment> attachment;
+    };
+
     void configureKnob (Knob& knob, const juce::String& parameterId, const juce::String& labelText);
+    void configureToggle (Toggle& toggle, const juce::String& parameterId, const juce::String& labelText);
 
     SilentiumAudioProcessor& audioProcessor;
 
@@ -37,6 +46,10 @@ private:
     Knob rangeKnob;
     Knob lookaheadKnob;
     Knob scHighpassKnob;
+    Knob kneeKnob;
+
+    Toggle duckToggle;
+    Toggle listenToggle;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessorEditor)
 };

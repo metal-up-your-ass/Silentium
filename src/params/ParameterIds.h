@@ -46,4 +46,23 @@ namespace ParamIDs
     // (never to the main signal), so that low-frequency hum/rumble doesn't
     // falsely hold the gate open.
     inline constexpr auto scHighpass = "scHighpass";
+
+    // Soft-knee width, in dB, centred on Threshold. 0 dB reproduces the
+    // original v0.1 hard-knee behaviour exactly (the gain computer's target
+    // snaps between Range and 0 dB at the open/close thresholds); a wider
+    // knee blends the target gain smoothly across the band, still bounded by
+    // the same hysteresis/hold state machine (see GateEngine::process()).
+    inline constexpr auto knee = "knee";
+
+    // Duck: inverts the gain computer so the detector crossing Threshold
+    // attenuates the output toward Range instead of opening it - the same
+    // detection path (SC HPF, hysteresis, hold, lookahead) driving a ducker
+    // instead of a gate.
+    inline constexpr auto duck = "duck";
+
+    // Listen: routes the sidechain-filtered detection signal (post SC HPF,
+    // pre envelope-follower) directly to the output, bypassing the gain
+    // computer entirely, so the gate's actual trigger signal can be
+    // auditioned while dialling in SC HPF/Threshold.
+    inline constexpr auto listen = "listen";
 }
