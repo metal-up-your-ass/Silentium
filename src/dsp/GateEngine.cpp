@@ -55,8 +55,14 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
 
     // Prime the SC HPF coefficients immediately so the very first process()
     // call runs with correct, non-default coefficients rather than an
-    // identity/uninitialised state.
-    *scHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
+    // identity/uninitialised state. Assigning from the plain std::array
+    // returned by ArrayCoefficients::makeHighPass (rather than
+    // Coefficients::makeHighPass, which heap-allocates a new reference-
+    // counted Coefficients object every call) also grows scHighPass.state's
+    // internal juce::Array to its final capacity here, in prepare(), so the
+    // identical assignment in process() below never allocates either - see
+    // the comment there.
+    *scHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (
         sampleRate, clampBelowNyquist (lastScHighpassHz, sampleRate), filterQ);
 }
 
@@ -165,7 +171,20 @@ void GateEngine::process (juce::dsp::AudioBlock<float>& block, const juce::dsp::
     }
 
     const auto scHz = clampBelowNyquist (scHighpassSmoothed.skip (static_cast<int> (numSamples)), sampleRate);
-    *scHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, scHz, filterQ);
+
+    // Recomputed once per block from the smoothed cutoff. Deliberately uses
+    // ArrayCoefficients::makeHighPass (a plain std::array<float, 6> returned
+    // by value) assigned in place into the existing, ref-counted
+    // scHighPass.state object, *not* Coefficients::makeHighPass, whose
+    // implementation is `return *new Coefficients (...)`: a heap allocation
+    // (plus the matching deallocation of the temporary Coefficients::Ptr)
+    // on every single process() call, which is not real-time-safe.
+    // Coefficients::operator=(const std::array&) reuses the juce::Array
+    // storage already reserved by the identical assignment in prepare()
+    // above (ensureStorageAllocated only grows, never shrinks/reallocates
+    // when the requested size is already met), so this line does not
+    // allocate either.
+    *scHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (sampleRate, scHz, filterQ);
 
     juce::dsp::ProcessContextReplacing<float> detectionContext (detectionSub);
     scHighPass.process (detectionContext);
