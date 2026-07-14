@@ -64,6 +64,9 @@ private:
     std::atomic<float>* rangeDb = nullptr;
     std::atomic<float>* lookaheadMs = nullptr;
     std::atomic<float>* scHighpassHz = nullptr;
+    std::atomic<float>* kneeDb = nullptr;
+    std::atomic<float>* duckMode = nullptr;
+    std::atomic<float>* listenMode = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessor)
 };

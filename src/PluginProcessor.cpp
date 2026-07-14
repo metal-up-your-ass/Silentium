@@ -7,7 +7,13 @@
 SilentiumAudioProcessor::SilentiumAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          // Optional external sidechain input, disabled by default so
+                          // existing sessions/hosts see no behaviour change until a user
+                          // explicitly enables it in their host's routing matrix. See
+                          // isBusesLayoutSupported() and processBlock() for how a
+                          // disabled/unconnected sidechain falls back to self-detection.
+                          .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     thresholdDb = apvts.getRawParameterValue (ParamIDs::threshold);
@@ -17,6 +23,9 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     rangeDb = apvts.getRawParameterValue (ParamIDs::range);
     lookaheadMs = apvts.getRawParameterValue (ParamIDs::lookahead);
     scHighpassHz = apvts.getRawParameterValue (ParamIDs::scHighpass);
+    kneeDb = apvts.getRawParameterValue (ParamIDs::knee);
+    duckMode = apvts.getRawParameterValue (ParamIDs::duck);
+    listenMode = apvts.getRawParameterValue (ParamIDs::listen);
 
     jassert (thresholdDb != nullptr);
     jassert (attackMs != nullptr);
@@ -25,6 +34,9 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     jassert (rangeDb != nullptr);
     jassert (lookaheadMs != nullptr);
     jassert (scHighpassHz != nullptr);
+    jassert (kneeDb != nullptr);
+    jassert (duckMode != nullptr);
+    jassert (listenMode != nullptr);
 }
 
 SilentiumAudioProcessor::~SilentiumAudioProcessor() = default;
@@ -104,6 +116,9 @@ void SilentiumAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     engine.setRangeDb (rangeDb->load (std::memory_order_relaxed));
     engine.setLookaheadMs (lookaheadMs->load (std::memory_order_relaxed));
     engine.setScHighpassHz (scHighpassHz->load (std::memory_order_relaxed));
+    engine.setKneeDb (kneeDb->load (std::memory_order_relaxed));
+    engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);
 
     engine.prepare (spec);
 
@@ -127,6 +142,7 @@ bool SilentiumAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 {
     const auto mono = juce::AudioChannelSet::mono();
     const auto stereo = juce::AudioChannelSet::stereo();
+    const auto disabled = juce::AudioChannelSet::disabled();
 
     const auto mainOut = layouts.getMainOutputChannelSet();
     const auto mainIn = layouts.getMainInputChannelSet();
@@ -137,6 +153,18 @@ bool SilentiumAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
     if (mainOut != mainIn)
         return false;
 
+    // The optional sidechain input (bus index 1) may be disabled entirely -
+    // the common case, and the one every host defaults to - or mono/stereo,
+    // independent of the main bus's own channel count: a mono kick-drum
+    // sidechain triggering a stereo guitar gate is a normal use case.
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sidechainSet = layouts.inputBuses.getReference (1);
+
+        if (sidechainSet != disabled && sidechainSet != mono && sidechainSet != stereo)
+            return false;
+    }
+
     return true;
 }
 
@@ -144,13 +172,14 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const auto totalNumInputChannels = getTotalNumInputChannels();
-    const auto totalNumOutputChannels = getTotalNumOutputChannels();
-
-    // Buses are constrained to in == out (mono or stereo), so this is
-    // normally a no-op, but it's cheap insurance against stray channels.
-    for (auto channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel)
-        buffer.clear (channel, 0, buffer.getNumSamples());
+    // The main bus is constrained to in == out (mono or stereo, see
+    // isBusesLayoutSupported()), so getBusBuffer() for bus 0 returns the
+    // exact same channel range for both directions - this is the correct,
+    // allocation-free way to get a view restricted to just the main bus's
+    // channels even when the optional sidechain bus (bus 1, input-only)
+    // widens the combined `buffer` passed in by the host beyond the main
+    // bus's own channel count.
+    auto mainBuffer = getBusBuffer (buffer, false, 0);
 
     engine.setThresholdDb (thresholdDb->load (std::memory_order_relaxed));
     engine.setAttackMs (attackMs->load (std::memory_order_relaxed));
@@ -159,9 +188,23 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     engine.setRangeDb (rangeDb->load (std::memory_order_relaxed));
     engine.setLookaheadMs (lookaheadMs->load (std::memory_order_relaxed));
     engine.setScHighpassHz (scHighpassHz->load (std::memory_order_relaxed));
+    engine.setKneeDb (kneeDb->load (std::memory_order_relaxed));
+    engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);
 
-    juce::dsp::AudioBlock<float> block (buffer);
-    engine.process (block);
+    juce::dsp::AudioBlock<float> mainBlock (mainBuffer);
+
+    // Sidechain (bus 1, input-only): getBusBuffer() safely returns a
+    // zero-channel view whenever the bus doesn't exist, is disabled (the
+    // default - see the constructor), or the host simply hasn't connected
+    // anything to it, so GateEngine's fallback to self-detection (see
+    // GateEngine::process()) covers all of those "no sidechain" cases with
+    // no extra branching needed here.
+    auto sidechainBuffer = getBusBuffer (buffer, true, 1);
+    juce::dsp::AudioBlock<float> sidechainBlock (sidechainBuffer);
+    const auto* sidechainBlockPtr = sidechainBlock.getNumChannels() > 0 ? &sidechainBlock : nullptr;
+
+    engine.process (mainBlock, sidechainBlockPtr);
 }
 
 //==============================================================================

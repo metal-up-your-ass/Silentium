@@ -26,6 +26,26 @@
 // what tests/EngineTests.cpp's hysteresis test verifies. Range == 0 dB means
 // the floor is 0 dB below unity, i.e. the gate never attenuates at all; this
 // is used as an "always open" reference passthrough in the null test.
+//
+// Three optional, off-by-default refinements sit on top of that same
+// hysteresis/hold state machine (see process()):
+//
+//   - Knee softens the gain computer's target into a smooth blend across a
+//     band centred on Threshold, instead of an instant snap between Range
+//     and 0 dB; Hold still overrides the blend to guarantee a fully open
+//     target for its whole duration, exactly as it does at Knee == 0.
+//   - Duck inverts that same target (attenuate above Threshold instead of
+//     opening above it), turning the gate into a ducker without touching
+//     the detection path.
+//   - Listen substitutes the sidechain-filtered detection signal itself for
+//     the gain computer's output, so the detector's trigger signal can be
+//     auditioned directly.
+//
+// process() also optionally accepts an external sidechain block: when
+// provided (non-null, non-empty), the detection path is fed from it instead
+// of a copy of the main block, e.g. for keying off a kick drum or a second
+// guitar track. Never written to; passed as non-const only because
+// juce::dsp::AudioBlock does not offer a deep-const view.
 class GateEngine
 {
 public:
@@ -44,7 +64,16 @@ public:
     // Processes `block` in place. `block` must have at most the maximum
     // sample/channel counts declared to prepare(); a zero-sample block is a
     // safe no-op. No allocation occurs here.
-    void process (juce::dsp::AudioBlock<float>& block);
+    //
+    // `sidechainBlock`, if non-null and has both channels and the same
+    // sample count as `block`, is used as the detection path's source
+    // instead of a copy of `block` (external sidechain). A sidechain with
+    // fewer channels than the detection path's channel count (e.g. mono
+    // sidechain feeding a stereo instance) is splatted: the last available
+    // sidechain channel is reused for any remaining detection channels. Any
+    // other case (null, zero channels, mismatched sample count) falls back
+    // to the normal self-detection behaviour.
+    void process (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock = nullptr);
 
     // Parameter setters, in real units (dB, ms, Hz). Safe to call every block
     // from the audio thread - no allocation/locks. Range and SC HPF are
@@ -60,6 +89,22 @@ public:
     void setRangeDb (float newRangeDb);
     void setLookaheadMs (float newLookaheadMs);
     void setScHighpassHz (float newFrequencyHz);
+
+    // Soft-knee width in dB, centred on Threshold; 0 dB (the default)
+    // reproduces the original hard-knee target exactly. Not smoothed, for
+    // the same reason Threshold/Attack/Hold/Release are not: it only
+    // reshapes the gain computer's target curve, which the Attack/Release
+    // ramp already approaches gradually - see process().
+    void setKneeDb (float newKneeDb);
+
+    // Inverts the gain computer's target (attenuate above Threshold instead
+    // of opening above it), turning the gate into a ducker. Off by default.
+    void setDuckingMode (bool shouldDuck);
+
+    // Substitutes the sidechain-filtered detection signal for the gain
+    // computer's output, auditioning the detector's trigger signal
+    // directly. Off by default.
+    void setListenMode (bool shouldListen);
 
     // Lookahead latency in samples, valid after prepare() has run. Lookahead
     // is treated as a structural parameter (like an oversampling factor):
@@ -106,6 +151,10 @@ private:
     // (0-20 ms, see ParameterLayout.cpp) at any realistic sample rate.
     static constexpr float maxLookaheadMs = 25.0f;
 
+    // Upper bound on Knee (see ParameterLayout.cpp); used only to clamp
+    // defensively, the same way clampBelowNyquist clamps SC HPF.
+    static constexpr float maxKneeDb = 24.0f;
+
     static float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept;
     int computeLookaheadSamples() const noexcept;
 
@@ -142,6 +191,9 @@ private:
     float lastRangeDb = -60.0f;
     float lastLookaheadMs = 5.0f;
     float lastScHighpassHz = 80.0f;
+    float lastKneeDb = 0.0f;
+    bool duckingMode = false;
+    bool listenMode = false;
 
     // Gate state machine, advanced one sample at a time in process().
     bool gateOpen = false;
