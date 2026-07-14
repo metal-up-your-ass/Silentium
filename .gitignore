@@ -1,0 +1,41 @@
+# Build output
+build/
+build*/
+out/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CMakeUserPresets.json
+_deps/
+
+# CPM package cache (if kept local to the repo instead of an external CPM_SOURCE_CACHE)
+.cpm_cache/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+DerivedData/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Misc
+*.log
+.cache/

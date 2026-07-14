@@ -1,0 +1,49 @@
+#pragma once
+
+// Central definition of all AudioProcessorValueTreeState parameter IDs for
+// Silentium. See docs/architecture.md for the corresponding signal-flow
+// diagram.
+//
+// FROZEN AS OF THE v0.1 PARAMETER LAYOUT:
+// Parameter IDs below must NEVER change once shipped - saved sessions and
+// presets persist the APVTS state keyed by these string IDs, and renaming or
+// removing one would silently break every user's saved state. Ranges,
+// defaults, and skew MAY still be refined during voicing/tuning milestones;
+// only the IDs themselves are frozen.
+namespace ParamIDs
+{
+    // Open threshold, in dBFS, measured on the (sidechain-filtered) envelope.
+    // The gate's close threshold sits a fixed amount below this (see
+    // GateEngine::hysteresisDb) so a signal hovering right at Threshold does
+    // not chatter the gate open/closed.
+    inline constexpr auto threshold = "threshold";
+
+    // Time for the gain computer to ramp from Range (closed) to 0 dB (open)
+    // once the envelope crosses the open threshold.
+    inline constexpr auto attack = "attack";
+
+    // Minimum time the gate stays open once opened, regardless of the
+    // envelope dropping below the close threshold - retriggered every sample
+    // the envelope stays above the close threshold. Prevents the gate from
+    // slamming shut between consecutive transients of a palm-muted phrase.
+    inline constexpr auto hold = "hold";
+
+    // Time for the gain computer to ramp from 0 dB back down to Range once
+    // the hold time has elapsed with the envelope below the close threshold.
+    inline constexpr auto release = "release";
+
+    // Floor attenuation applied when the gate is closed, in dB. 0 dB means
+    // the gate never attenuates at all (an always-open passthrough).
+    inline constexpr auto range = "range";
+
+    // Lookahead applied to the main (delayed) signal path so the gate can
+    // start opening slightly before a transient actually arrives. Reported
+    // to the host as this plugin's total latency (see
+    // SilentiumAudioProcessor::prepareToPlay).
+    inline constexpr auto lookahead = "lookahead";
+
+    // Sidechain high-pass filter cutoff applied only to the detection path
+    // (never to the main signal), so that low-frequency hum/rumble doesn't
+    // falsely hold the gate open.
+    inline constexpr auto scHighpass = "scHighpass";
+}

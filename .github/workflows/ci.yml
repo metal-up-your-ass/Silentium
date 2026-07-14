@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set CPM source cache path
+        shell: bash
+        run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+
+      - name: Cache CPM dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CPM_SOURCE_CACHE }}
+          key: ${{ runner.os }}-cpm-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-cpm-
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: cmake --build build
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release
+
+      - name: Test (macOS)
+        if: runner.os == 'macOS'
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      - name: Locate plugin artefacts
+        id: artefacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTEFACT_ROOT="build/Silentium_artefacts"
+          # JUCE's artefact path may or may not include a Release/ segment
+          # depending on whether the generator is single- or multi-config.
+          VST3_PATH=$(find "$ARTEFACT_ROOT" -type d -iname "*.vst3" | head -n 1)
+          if [ -z "$VST3_PATH" ]; then
+            echo "::error::No .vst3 artefact found under $ARTEFACT_ROOT"
+            exit 1
+          fi
+          echo "vst3_path=$VST3_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found VST3 at: $VST3_PATH"
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            COMPONENT_PATH=$(find "$ARTEFACT_ROOT" -type d -iname "*.component" | head -n 1)
+            if [ -z "$COMPONENT_PATH" ]; then
+              echo "::error::No .component artefact found under $ARTEFACT_ROOT"
+              exit 1
+            fi
+            echo "component_path=$COMPONENT_PATH" >> "$GITHUB_OUTPUT"
+            echo "Found AU component at: $COMPONENT_PATH"
+          fi
+
+      - name: Download pluginval (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PLUGINVAL_VERSION: v1.0.4
+          PLUGINVAL_MACOS_SHA256: 3c4c533bda0c5059eea3ddaea752d757ee2025041f0f47e6bcb0e87f6082b29f
+        run: |
+          set -euo pipefail
+          curl -sL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/pluginval_macOS.zip"
+          echo "${PLUGINVAL_MACOS_SHA256}  pluginval.zip" | shasum -a 256 -c -
+          unzip -q pluginval.zip -d pluginval
+          chmod +x "pluginval/pluginval.app/Contents/MacOS/pluginval"
+
+      - name: Download pluginval (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PLUGINVAL_VERSION: v1.0.4
+          PLUGINVAL_WINDOWS_SHA256: c08e61ce3b96db41636f8ec7e76f4c7e2c13ebdac7fa1b5a1f52b4f32ec715ab
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/download/$env:PLUGINVAL_VERSION/pluginval_Windows.zip" -OutFile pluginval.zip
+          $actualHash = (Get-FileHash -Path pluginval.zip -Algorithm SHA256).Hash.ToLower()
+          if ($actualHash -ne $env:PLUGINVAL_WINDOWS_SHA256) {
+            Write-Error "pluginval.zip checksum mismatch: expected $env:PLUGINVAL_WINDOWS_SHA256, got $actualHash"
+            exit 1
+          }
+          Expand-Archive -Path pluginval.zip -DestinationPath pluginval
+
+      - name: Run pluginval (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          "pluginval/pluginval.app/Contents/MacOS/pluginval" \
+            --strictness-level 10 \
+            --validate "${{ steps.artefacts.outputs.vst3_path }}"
+
+      - name: Run pluginval (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          & ".\pluginval\pluginval.exe" --strictness-level 10 --validate "${{ steps.artefacts.outputs.vst3_path }}"
+
+      - name: auval validation (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "${{ steps.artefacts.outputs.component_path }}" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -strict -v aufx Slnt Yvsv
+
+      - name: Upload plugin artefacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: silentium-${{ matrix.os }}
+          path: build/Silentium_artefacts/**
+          if-no-files-found: error
