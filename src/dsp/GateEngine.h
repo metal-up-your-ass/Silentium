@@ -61,18 +61,29 @@ public:
     // stop/loop).
     void reset();
 
-    // Processes `block` in place. `block` must have at most the maximum
-    // sample/channel counts declared to prepare(); a zero-sample block is a
-    // safe no-op. No allocation occurs here.
+    // Processes `block` in place. `block`'s channel count must be at most
+    // the count declared to prepare(), but its *sample* count is not
+    // required to be at most spec.maximumBlockSize, even though every host
+    // is supposed to honour that promise: JUCE's own AudioProcessor::
+    // processBlock docs warn verbatim that block sizes are "NOT guaranteed
+    // to be the same for every callback, and may be more or less than" the
+    // prepared value. An oversized block is handled safely and correctly by
+    // processing it in internal chunks of at most the prepared capacity
+    // (see the private processChunk() and issue #12) rather than writing
+    // past detectionBuffer/monoEnvelopeBuffer's fixed-size allocations. A
+    // zero-sample block is a safe no-op. No allocation occurs here.
     //
     // `sidechainBlock`, if non-null and has both channels and the same
-    // sample count as `block`, is used as the detection path's source
-    // instead of a copy of `block` (external sidechain). A sidechain with
-    // fewer channels than the detection path's channel count (e.g. mono
-    // sidechain feeding a stereo instance) is splatted: the last available
-    // sidechain channel is reused for any remaining detection channels. Any
-    // other case (null, zero channels, mismatched sample count) falls back
-    // to the normal self-detection behaviour.
+    // *total* sample count as `block`, is used as the detection path's
+    // source instead of a copy of `block` (external sidechain) - that
+    // check is made once against the full, pre-chunking sample count, and
+    // the sidechain is then sliced identically to `block` for each internal
+    // chunk. A sidechain with fewer channels than the detection path's
+    // channel count (e.g. mono sidechain feeding a stereo instance) is
+    // splatted: the last available sidechain channel is reused for any
+    // remaining detection channels. Any other case (null, zero channels,
+    // mismatched sample count) falls back to the normal self-detection
+    // behaviour.
     void process (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock = nullptr);
 
     // Parameter setters, in real units (dB, ms, Hz). Safe to call every block
@@ -158,6 +169,14 @@ private:
     static float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept;
     int computeLookaheadSamples() const noexcept;
 
+    // Runs the actual detection/gain-computer/lookahead DSP on a single
+    // chunk. `block.getNumSamples()` must be <= preparedBlockSize -
+    // process()'s chunking loop guarantees that precondition on every call,
+    // so this is the only place that indexes into detectionBuffer/
+    // monoEnvelopeBuffer (see issue #12). Body unchanged from process()
+    // itself prior to that fix.
+    void processChunk (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock);
+
     double sampleRate = 44100.0;
     juce::uint32 numChannels = 2;
 
@@ -176,6 +195,13 @@ private:
     // maximum block size declared there; never resized on the audio thread.
     juce::AudioBuffer<float> detectionBuffer;
     juce::AudioBuffer<float> monoEnvelopeBuffer;
+
+    // Sample-count capacity detectionBuffer/monoEnvelopeBuffer were sized
+    // for in prepare() (== spec.maximumBlockSize there, captured here
+    // because ProcessSpec itself isn't retained). process() chunks any
+    // oversized host block into pieces of at most this many samples before
+    // calling processChunk() - see issue #12.
+    size_t preparedBlockSize = 0;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> rangeSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> scHighpassSmoothed;

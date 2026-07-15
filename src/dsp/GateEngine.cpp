@@ -42,6 +42,7 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
 
     detectionBuffer.setSize (static_cast<int> (spec.numChannels), static_cast<int> (spec.maximumBlockSize), false, false, true);
     monoEnvelopeBuffer.setSize (1, static_cast<int> (spec.maximumBlockSize), false, false, true);
+    preparedBlockSize = static_cast<size_t> (spec.maximumBlockSize);
 
     rangeSmoothed.reset (sampleRate, smoothingTimeSeconds);
     rangeSmoothed.setCurrentAndTargetValue (lastRangeDb);
@@ -135,6 +136,55 @@ void GateEngine::setListenMode (bool shouldListen)
 }
 
 void GateEngine::process (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock)
+{
+    const auto requestedSamples = block.getNumSamples();
+
+    if (requestedSamples == 0)
+        return;
+
+    // sidechainUsable is decided once, against the full, pre-chunking
+    // sample count - a sidechain with a different *total* sample count
+    // than the main block is unusable regardless of how the loop below
+    // subdivides that block internally. See process()'s header doc.
+    const auto sidechainUsable = sidechainBlock != nullptr
+                                  && sidechainBlock->getNumChannels() > 0
+                                  && sidechainBlock->getNumSamples() == requestedSamples;
+
+    // Issue #12: detectionBuffer/monoEnvelopeBuffer (and every other piece
+    // of per-block scratch state processChunk() indexes into) are
+    // allocated in prepare() for at most preparedBlockSize samples. Hosts
+    // are expected to never call process() with more samples than they
+    // promised via prepare()'s spec.maximumBlockSize, but JUCE's own docs
+    // explicitly warn that block sizes are "NOT guaranteed" to honour that
+    // promise. Rather than write past those buffers' actual capacity (heap
+    // overflow) or silently truncate/drop the tail of an oversized block,
+    // process it in chunks of at most preparedBlockSize - mirroring the
+    // suite's proven chunking pattern (see e.g. twist-your-guts's
+    // PluginProcessor::processBlock) - so every sample is still processed
+    // correctly. A normal, in-capacity block takes exactly one iteration of
+    // this loop, so this is a no-op change for the common case.
+    const auto chunkLimit = preparedBlockSize > 0
+                                 ? preparedBlockSize
+                                 : juce::jmax (static_cast<size_t> (1), requestedSamples);
+
+    for (size_t offset = 0; offset < requestedSamples; offset += chunkLimit)
+    {
+        const auto chunkLength = juce::jmin (chunkLimit, requestedSamples - offset);
+        auto chunkBlock = block.getSubBlock (offset, chunkLength);
+
+        if (sidechainUsable)
+        {
+            auto sidechainChunk = sidechainBlock->getSubBlock (offset, chunkLength);
+            processChunk (chunkBlock, &sidechainChunk);
+        }
+        else
+        {
+            processChunk (chunkBlock, nullptr);
+        }
+    }
+}
+
+void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock)
 {
     const auto numSamples = block.getNumSamples();
 

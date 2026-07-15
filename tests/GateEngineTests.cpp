@@ -244,3 +244,70 @@ TEST_CASE ("Zero-sample block is a safe no-op", "[dsp][gate]")
 
     CHECK_NOTHROW (engine.process (block));
 }
+
+TEST_CASE ("Oversized host block (larger than the size promised to prepare()) is chunked safely and fully processed", "[dsp][gate][robustness]")
+{
+    // Issue #12: detectionBuffer/monoEnvelopeBuffer are allocated in
+    // prepare() for exactly spec.maximumBlockSize samples. A host is not
+    // guaranteed to honour that promise (JUCE's own AudioProcessor::
+    // processBlock docs warn block sizes "may be more or less than" the
+    // prepared value - e.g. an offline bounce or a "Multiprocessor
+    // Rendering" host), so process() must not write past that capacity
+    // when handed a larger block.
+    GateEngine engine;
+
+    // Range = 0 dB + Threshold at its minimum reduces the whole engine to
+    // a pure delay (see the null-test reference at the top of this file),
+    // so the expected output for *every* sample of an oversized block -
+    // not just the first preparedBlockSize of them - is the delayed input.
+    // This is what distinguishes a fix that fully processes an oversized
+    // block (chunking) from one that merely truncates/drops its tail to
+    // avoid the overflow.
+    engine.setThresholdDb (-80.0f);
+    engine.setRangeDb (0.0f);
+    engine.setAttackMs (1.0f);
+    engine.setHoldMs (20.0f);
+    engine.setReleaseMs (80.0f);
+    engine.setLookaheadMs (1.0f);
+    engine.setScHighpassHz (20.0f);
+
+    // Deliberately tiny prepared capacity so a still-small, entirely
+    // realistic block is nonetheless many times larger than it.
+    constexpr int preparedBlockSize = 32;
+    const auto spec = makeTestSpec (2, preparedBlockSize);
+    engine.prepare (spec);
+
+    const auto latency = engine.getLatencySamples();
+    REQUIRE (latency > 0);
+
+    constexpr int oversizedBlockSize = preparedBlockSize * 64; // 2048 samples, 64x prepared capacity
+
+    juce::AudioBuffer<float> reference (2, oversizedBlockSize);
+    TestHelpers::fillWithSine (reference, testSampleRate, testFrequencyHz, 0.5f);
+
+    juce::AudioBuffer<float> processed;
+    processed.makeCopyOf (reference);
+
+    juce::dsp::AudioBlock<float> block (processed);
+    CHECK_NOTHROW (engine.process (block));
+
+    CHECK (TestHelpers::allSamplesFinite (processed));
+
+    const auto overlapLength = oversizedBlockSize - latency;
+    REQUIRE (overlapLength > oversizedBlockSize / 2);
+
+    constexpr float tolerance = 1.0e-5f;
+
+    for (int channel = 0; channel < reference.getNumChannels(); ++channel)
+    {
+        const auto* refData = reference.getReadPointer (channel);
+        const auto* outData = processed.getReadPointer (channel);
+
+        float maxResidual = 0.0f;
+
+        for (int i = 0; i < overlapLength; ++i)
+            maxResidual = std::max (maxResidual, std::abs (outData[latency + i] - refData[i]));
+
+        CHECK (maxResidual < tolerance);
+    }
+}
