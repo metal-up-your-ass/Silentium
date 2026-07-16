@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **GateEngine: clamp/chunk `numSamples` against prepared capacity to prevent heap overflow on oversized host blocks** ([#12](https://github.com/basilica-audio/Silentium/issues/12)). `GateEngine::process()` now chunks any host block larger than the size promised to `prepare()` into pieces of at most that prepared capacity before touching `detectionBuffer`/`monoEnvelopeBuffer`, instead of trusting the host-supplied sample count directly. A block within capacity is unaffected (still exactly one iteration of the new chunking loop).
+
 ## [0.1.0] - 2026-07-14
 
 ### Added
