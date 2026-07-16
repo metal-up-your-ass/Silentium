@@ -42,12 +42,13 @@ TEST_CASE ("Full-scale input at extreme gate settings produces no NaN/Inf", "[ro
     processor.prepareToPlay (48000.0, 512);
 
     setParam (processor, ParamIDs::threshold, -80.0f);
-    setParam (processor, ParamIDs::attack, 0.1f);
-    setParam (processor, ParamIDs::hold, 500.0f);
+    setParam (processor, ParamIDs::attack, 0.0f);
+    setParam (processor, ParamIDs::hold, 250.0f);
     setParam (processor, ParamIDs::release, 5.0f);
     setParam (processor, ParamIDs::range, -80.0f);
     setParam (processor, ParamIDs::lookahead, 20.0f);
     setParam (processor, ParamIDs::scHighpass, 500.0f);
+    setParam (processor, ParamIDs::scLowpass, 1000.0f);
 
     juce::AudioBuffer<float> buffer (2, 512);
     TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 1.0f);
@@ -164,12 +165,13 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
     for (bool useMinimum : { true, false })
     {
         setParam (processor, ParamIDs::threshold, useMinimum ? -80.0f : 0.0f);
-        setParam (processor, ParamIDs::attack, useMinimum ? 0.1f : 50.0f);
-        setParam (processor, ParamIDs::hold, useMinimum ? 0.0f : 500.0f);
+        setParam (processor, ParamIDs::attack, useMinimum ? 0.0f : 50.0f);
+        setParam (processor, ParamIDs::hold, useMinimum ? 0.0f : 250.0f);
         setParam (processor, ParamIDs::release, useMinimum ? 5.0f : 500.0f);
         setParam (processor, ParamIDs::range, useMinimum ? -80.0f : 0.0f);
         setParam (processor, ParamIDs::lookahead, useMinimum ? 0.0f : 20.0f);
         setParam (processor, ParamIDs::scHighpass, useMinimum ? 20.0f : 500.0f);
+        setParam (processor, ParamIDs::scLowpass, useMinimum ? 1000.0f : 16000.0f);
 
         TestHelpers::fillWithSine (buffer, 44100.0, 440.0, 0.8f);
 
@@ -191,12 +193,13 @@ TEST_CASE ("Rapid parameter automation across many blocks produces no NaN/Inf", 
     for (int block = 0; block < 100; ++block)
     {
         setParam (processor, ParamIDs::threshold, -80.0f + unit (rng) * 80.0f);
-        setParam (processor, ParamIDs::attack, 0.1f + unit (rng) * 49.9f);
-        setParam (processor, ParamIDs::hold, unit (rng) * 500.0f);
+        setParam (processor, ParamIDs::attack, unit (rng) * 50.0f);
+        setParam (processor, ParamIDs::hold, unit (rng) * 250.0f);
         setParam (processor, ParamIDs::release, 5.0f + unit (rng) * 495.0f);
         setParam (processor, ParamIDs::range, -80.0f + unit (rng) * 80.0f);
         setParam (processor, ParamIDs::lookahead, unit (rng) * 20.0f);
         setParam (processor, ParamIDs::scHighpass, 20.0f + unit (rng) * 480.0f);
+        setParam (processor, ParamIDs::scLowpass, 1000.0f + unit (rng) * 15000.0f);
         setParam (processor, ParamIDs::knee, unit (rng) * 24.0f);
         setParam (processor, ParamIDs::duck, unit (rng) > 0.5f ? 1.0f : 0.0f);
         setParam (processor, ParamIDs::listen, unit (rng) > 0.5f ? 1.0f : 0.0f);
@@ -263,11 +266,12 @@ TEST_CASE ("Long-run stability: thousands of blocks with continuously varying pa
         if (block % 50 == 0)
         {
             setParam (processor, ParamIDs::threshold, -80.0f + unit (rng) * 80.0f);
-            setParam (processor, ParamIDs::attack, 0.1f + unit (rng) * 49.9f);
-            setParam (processor, ParamIDs::hold, unit (rng) * 500.0f);
+            setParam (processor, ParamIDs::attack, unit (rng) * 50.0f);
+            setParam (processor, ParamIDs::hold, unit (rng) * 250.0f);
             setParam (processor, ParamIDs::release, 5.0f + unit (rng) * 495.0f);
             setParam (processor, ParamIDs::range, -80.0f + unit (rng) * 80.0f);
             setParam (processor, ParamIDs::scHighpass, 20.0f + unit (rng) * 480.0f);
+            setParam (processor, ParamIDs::scLowpass, 1000.0f + unit (rng) * 15000.0f);
             setParam (processor, ParamIDs::knee, unit (rng) * 24.0f);
             setParam (processor, ParamIDs::duck, unit (rng) > 0.7f ? 1.0f : 0.0f);
         }

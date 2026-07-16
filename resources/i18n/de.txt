@@ -1,0 +1,21 @@
+language: German
+countries: de at ch
+
+"Init" = "Init"
+"Factory" = "Werksvoreinstellungen"
+"User" = "Eigene"
+"Set current as default" = "Aktuelle als Standard festlegen"
+"Save" = "Speichern"
+"Save As..." = "Speichern unter..."
+"Delete" = "Löschen"
+"Import..." = "Importieren..."
+"Export..." = "Exportieren..."
+"Enter a name for the new preset:" = "Namen für die neue Voreinstellung eingeben:"
+"Preset name" = "Name der Voreinstellung"
+"Cancel" = "Abbrechen"
+"Import a preset or preset bank..." = "Voreinstellung oder Voreinstellungs-Sammlung importieren..."
+"Import failed" = "Import fehlgeschlagen"
+"Export preset..." = "Voreinstellung exportieren..."
+"This file is not a valid preset." = "Diese Datei ist keine gültige Voreinstellung."
+"This preset was saved by an incompatible version of the preset format." = "Diese Voreinstellung wurde mit einer inkompatiblen Version des Voreinstellungsformats gespeichert."
+"This preset file belongs to a different plugin." = "Diese Voreinstellungsdatei gehört zu einem anderen Plugin."

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-16
+
+### Added
+
+- **Research-derived voicing pass** (`docs/design-brief.md`, `docs/research-notes.md`): a deep-dive gap analysis against the reference class (ISP Decimator, dbx 166 series, FabFilter Pro-G, plus Nail The Mix/Fortin Amps workflow lore) identified Silentium's biggest gap versus the category as a lack of program-dependence in the gain computer, and a sidechain path that rejected hum but never emphasized the guitar pick-attack transient band. Both are addressed below. Every numeric default/range change is individually sourced in `docs/research-notes.md`; see `docs/design-brief.md`'s honesty section for what is and isn't independently verified against real hardware (nothing was - this is manual/practitioner-article-derived, not measured).
+- **Program-dependent attack/release ramp**: replaces the v0.1.0 fixed dB/sample linear slope with an exponential approach whose per-sample convergence rate is calibrated so a full Range-span transition still completes in the stated Attack/Release time, but a partial transition (e.g. a brief dip that reopens before fully closing) now converges to the same absolute tolerance in proportionally less wall-clock time - the defining behaviour both ISP's "Time Vector Integration" and dbx's "AutoDynamic" cite as their headline differentiator. This is this brief's own plausible, testable mechanism, not a reproduction of either vendor's undisclosed proprietary algorithm - flagged as the riskiest change in the brief and recommended for validation against real playing.
+- **SC LPF** parameter (`scLowpass`, 1000-16000 Hz, default 16000 Hz/effectively off): a second sidechain-only low-pass filter in series after SC HPF, letting the detection path be narrowed toward the documented 2-5 kHz guitar pick-attack transient band. Inert at its default, so a v0.1.0 session reproduces v0.1.0 behaviour exactly unless this new parameter is touched.
+- **M2 preset system** (`.scaffold/specs/preset-system-m2.md`, copied from `basilica-audio/nave`'s pilot implementation): `src/presets/{PresetManager,PresetBar}` - factory presets (embedded via BinaryData), user presets (`~/Library/Audio/Presets/Yves Vogl/Silentium/` on macOS), save/save-as/rename/delete, single-file and zip-bank import/export, dirty-state tracking, prev/next navigation, and default-preset resolution (user Default > factory Default > built-in parameter defaults). Nine factory presets ship (`docs/presets.md`): Default, Surgical Mute, Natural Decay, Pick Attack Focus, DI-Keyed Workflow, Ambient Sustain, Chug Lock, Duck Under Lead, and Listen Check.
+- **DE localisation frame** (`src/presets/Localisation.{h,cpp}`, `resources/i18n/de.txt`): every user-facing preset-bar frame string (buttons, menus, dialogs, error messages) is wrapped in `TRANS()`/`juce::translate()` and automatically switches to German when the system language is German, falling back to English otherwise. Core/DSP terminology (parameter names, units) is never translated.
+- `docs/design-brief.md`, `docs/research-notes.md`, `docs/presets.md`: the full sourcing/reasoning behind this release's voicing changes and factory preset content.
+- Test suite grew from 43 to 70 Catch2 cases: the seven design-brief test guarantees (SC LPF null test, a measured SC HPF/LPF band-pass curve, the program-dependent ramp proof, the Attack-floor-reaches-instantaneously proof, Hold-clamps-at-250ms, tolerant v0.1.0 state import, and a spectral proof that the Surgical Mute/Natural Decay preset pair are audibly distinct), sixteen M2 preset-system tests, and three i18n frame tests.
+
+### Changed
+
+- **Attack** floor lowered from 0.1 ms to 0 ms, so lookahead-assisted instantaneous (within-one-sample) gate opening is now reachable, matching documented practitioner guidance ("0.1ms to 1ms, sometimes even 0ms if your gate allows lookahead"). Default (1 ms) unchanged.
+- **Hold** ceiling lowered from 500 ms to 250 ms, matching the best-documented software reference's own ceiling (v0.1.0's 500 ms had no found justification). Default (20 ms) unchanged. A hand-edited/future state with Hold above 250 ms clamps to the new ceiling on load rather than asserting or wrapping.
+- Parameter count grew from 10 to 11 (`scLowpass` added); every pre-existing v0.1.0 parameter ID, range, and default not called out above is unchanged, and a v0.1.0 state tree loads with the new ID populated at its v0.2.0 default (tolerant import - no value remapping needed, since no existing ID was renamed or rescaled).
+- CMake project version bumped to 0.2.0; `ICON_BIG` app icon wiring (already present from v0.1.1) verified unchanged.
+
+### Fixed
+
+- `docs/architecture.md`/`docs/manual.md`/`README.md` updated to describe the full v0.2.0 signal path (SC LPF, program-dependent ramp), parameter ranges, the M2 preset system, and the i18n frame.
+
 ## [0.1.1] - 2026-07-16
 
 ### Changed

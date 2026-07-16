@@ -57,7 +57,7 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
     {
         static constexpr const char* allIds[] = {
             ParamIDs::threshold, ParamIDs::attack, ParamIDs::hold, ParamIDs::release,
-            ParamIDs::range, ParamIDs::lookahead, ParamIDs::scHighpass,
+            ParamIDs::range, ParamIDs::lookahead, ParamIDs::scHighpass, ParamIDs::scLowpass,
             ParamIDs::knee, ParamIDs::duck, ParamIDs::listen,
         };
 
@@ -65,9 +65,9 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.1.0 layout")
+    SECTION ("total parameter count matches the v0.2.0 layout (v0.1.0's 10 plus SC LPF)")
     {
-        CHECK (apvts.processor.getParameters().size() == 10);
+        CHECK (apvts.processor.getParameters().size() == 11);
     }
 
     SECTION ("Threshold: open threshold defaults and range")
@@ -76,16 +76,16 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         checkFloatRange (apvts, ParamIDs::threshold, -80.0f, 0.0f);
     }
 
-    SECTION ("Attack: open ramp time defaults and range")
+    SECTION ("Attack: open ramp time defaults and range (v0.2.0 lowers the floor to 0 ms)")
     {
         checkFloatDefault (apvts, ParamIDs::attack, 1.0f);
-        checkFloatRange (apvts, ParamIDs::attack, 0.1f, 50.0f);
+        checkFloatRange (apvts, ParamIDs::attack, 0.0f, 50.0f);
     }
 
-    SECTION ("Hold: minimum open time defaults and range")
+    SECTION ("Hold: minimum open time defaults and range (v0.2.0 lowers the ceiling to 250 ms)")
     {
         checkFloatDefault (apvts, ParamIDs::hold, 20.0f);
-        checkFloatRange (apvts, ParamIDs::hold, 0.0f, 500.0f);
+        checkFloatRange (apvts, ParamIDs::hold, 0.0f, 250.0f);
     }
 
     SECTION ("Release: close ramp time defaults and range")
@@ -110,6 +110,12 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
     {
         checkFloatDefault (apvts, ParamIDs::scHighpass, 80.0f);
         checkFloatRange (apvts, ParamIDs::scHighpass, 20.0f, 500.0f);
+    }
+
+    SECTION ("SC LPF (v0.2.0): sidechain low-pass defaults fully open, at the top of its range")
+    {
+        checkFloatDefault (apvts, ParamIDs::scLowpass, 16000.0f);
+        checkFloatRange (apvts, ParamIDs::scLowpass, 1000.0f, 16000.0f);
     }
 
     SECTION ("Knee: soft-knee width defaults and range")

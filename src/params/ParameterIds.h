@@ -47,6 +47,15 @@ namespace ParamIDs
     // falsely hold the gate open.
     inline constexpr auto scHighpass = "scHighpass";
 
+    // v0.2.0: sidechain low-pass filter cutoff, applied only to the
+    // detection path in series after the SC HPF, so the detection band can
+    // be narrowed toward the guitar pick-attack transient region (roughly
+    // 2-5 kHz - see docs/design-brief.md) instead of only having its bottom
+    // end rejected. Defaults fully open (16 kHz) so a v0.1.0 session that
+    // never touches it reproduces v0.1.0 behaviour exactly (tolerant
+    // import - see docs/design-brief.md's Versioning section).
+    inline constexpr auto scLowpass = "scLowpass";
+
     // Soft-knee width, in dB, centred on Threshold. 0 dB reproduces the
     // original v0.1 hard-knee behaviour exactly (the gain computer's target
     // snaps between Range and 0 dB at the open/close thresholds); a wider

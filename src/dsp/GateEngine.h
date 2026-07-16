@@ -8,12 +8,15 @@
 // filter/delay-line is allocated in prepare() and never reallocated on the
 // audio thread.
 //
-// Signal flow (see docs/architecture.md for the full diagram):
+// Signal flow (see docs/architecture.md and docs/design-brief.md for the
+// full v0.2.0 diagram):
 //
 //   Detection path (never reaches the output):
-//     input -> SC HPF (sidechain-only) -> stereo-linked max|.| -> peak
-//     envelope follower -> dBFS -> hysteresis comparator + hold timer
-//     -> attack/release gain ramp (dB domain, floor = Range)
+//     input -> SC HPF (sidechain-only) -> SC LPF (sidechain-only, v0.2.0,
+//     off/fully-open by default) -> stereo-linked max|.| -> peak envelope
+//     follower -> dBFS -> hysteresis comparator + hold timer -> knee blend
+//     -> program-dependent attack/release gain ramp (dB domain, floor =
+//     Range)
 //
 //   Main path:
 //     input -> lookahead delay -> * gain (from the detection path, applied
@@ -26,6 +29,19 @@
 // what tests/EngineTests.cpp's hysteresis test verifies. Range == 0 dB means
 // the floor is 0 dB below unity, i.e. the gate never attenuates at all; this
 // is used as an "always open" reference passthrough in the null test.
+//
+// SC LPF (v0.2.0) is a second, independent sidechain-only filter stage in
+// series after SC HPF, so the detection path can be narrowed toward the
+// documented guitar pick-attack transient band (roughly 2-5 kHz) instead of
+// only having its bottom end rejected - see docs/design-brief.md's "SC LPF"
+// section. It defaults to 16 kHz (effectively fully open at typical sample
+// rates), so a v0.1.0 session that never touches it reproduces v0.1.0
+// behaviour exactly (tests/DesignBriefTests.cpp's SC LPF null test).
+//
+// Attack/Release (v0.2.0) drive a program-dependent exponential ramp rather
+// than v0.1's fixed dB/sample linear slope - see setAttackMs()/setReleaseMs()
+// and process()'s gain-computer comment for the exact mechanism and the
+// honesty note on why this specific curve shape was chosen.
 //
 // Three optional, off-by-default refinements sit on top of that same
 // hysteresis/hold state machine (see process()):
@@ -101,6 +117,10 @@ public:
     void setLookaheadMs (float newLookaheadMs);
     void setScHighpassHz (float newFrequencyHz);
 
+    // v0.2.0: sidechain-only low-pass, in series after the SC HPF - see the
+    // class-level docs. Smoothed the same way as setScHighpassHz().
+    void setScLowpassHz (float newFrequencyHz);
+
     // Soft-knee width in dB, centred on Threshold; 0 dB (the default)
     // reproduces the original hard-knee target exactly. Not smoothed, for
     // the same reason Threshold/Attack/Hold/Release are not: it only
@@ -166,6 +186,16 @@ private:
     // defensively, the same way clampBelowNyquist clamps SC HPF.
     static constexpr float maxKneeDb = 24.0f;
 
+    // v0.2.0 program-dependent ramp (see process()'s gain-computer comment
+    // for the full mechanism): the exponential approach is calibrated so a
+    // full Range-span transition reaches within this many dB of its target
+    // in the user-facing Attack/Release time - i.e. "practically at target".
+    // A smaller, e.g. near-Threshold, transition then reaches the same
+    // absolute tolerance in proportionally less wall-clock time purely as a
+    // consequence of the exponential shape, which is what
+    // tests/DesignBriefTests.cpp's ramp-proof test measures.
+    static constexpr float rampCloseEnoughDb = 0.5f;
+
     static float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept;
     int computeLookaheadSamples() const noexcept;
 
@@ -182,6 +212,11 @@ private:
 
     // Sidechain-only high-pass; never applied to the main signal path.
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scHighPass;
+
+    // v0.2.0: sidechain-only low-pass, in series after scHighPass above -
+    // never applied to the main signal path. See setScLowpassHz()/the
+    // class-level docs.
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scLowPass;
 
     // Mono (1-channel) peak envelope follower fed by the stereo-linked
     // max|.| of the sidechain-filtered detection signal.
@@ -205,6 +240,7 @@ private:
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> rangeSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> scHighpassSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> scLowpassSmoothed;
     static constexpr double smoothingTimeSeconds = 0.05;
 
     // Last commanded values (ParameterLayout defaults until a setter is
@@ -217,6 +253,7 @@ private:
     float lastRangeDb = -60.0f;
     float lastLookaheadMs = 5.0f;
     float lastScHighpassHz = 80.0f;
+    float lastScLowpassHz = 16000.0f;
     float lastKneeDb = 0.0f;
     bool duckingMode = false;
     bool listenMode = false;

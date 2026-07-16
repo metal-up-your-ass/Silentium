@@ -14,35 +14,37 @@
 
 Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp hiss/hum in the silence between palm-muted chugs: it detects transients on a sidechain-filtered copy of the input (so hum/rumble can't falsely hold it open), opens fast with a lookahead head start so it never clips the leading edge of a pick attack, and uses two separate open/close thresholds so a signal hovering near the threshold can't chatter the gate open and closed.
 
-## Features (v0.1.0 scope)
+## Features (v0.2.0 scope)
 
 - **Threshold** - open threshold on the (sidechain-filtered) envelope, -80 dB to 0 dB (default -40 dB)
 - **Hysteresis** - the gate's close threshold sits a fixed 3 dB below Threshold, so it can never chatter on a signal hovering near one value
-- **Attack** - ramp time from the Range floor up to unity once the envelope opens the gate, 0.1 - 50 ms (default 1 ms)
-- **Hold** - minimum time the gate stays open once opened, retriggered continuously while the envelope stays above the close threshold, 0 - 500 ms (default 20 ms)
-- **Release** - ramp time back down to the Range floor once Hold has elapsed, 5 - 500 ms (default 80 ms)
+- **Attack** - program-dependent ramp time from the Range floor up to unity once the envelope opens the gate, 0 - 50 ms (default 1 ms; floor lowered from 0.1 ms in v0.2.0)
+- **Hold** - minimum time the gate stays open once opened, retriggered continuously while the envelope stays above the close threshold, 0 - 250 ms (default 20 ms; ceiling lowered from 500 ms in v0.2.0)
+- **Release** - program-dependent ramp time back down to the Range floor once Hold has elapsed, 5 - 500 ms (default 80 ms)
 - **Range** - floor attenuation applied while closed, -80 dB to 0 dB (default -60 dB); 0 dB means the gate never attenuates at all
 - **Lookahead** - delays the main signal 0 - 20 ms (default 5 ms) so the gate can start opening just before a transient arrives; reported to the host as this plugin's total latency
 - **SC HPF** - sidechain-only high-pass, 20 - 500 Hz (default 80 Hz), keeps hum/rumble from falsely holding the gate open; never applied to the main signal
+- **SC LPF** *(v0.2.0)* - sidechain-only low-pass in series after SC HPF, 1000 - 16000 Hz (default 16000 Hz/off), narrows the detection band toward the guitar pick-attack transient region
 - **Knee** - soft-knee width around Threshold, 0 - 24 dB (default 0 dB); 0 dB is the classic hard-knee snap, wider values blend the gain smoothly across the band
 - **Duck** - inverts the gain computer into a ducker (attenuate above Threshold instead of opening above it), off by default
 - **Listen** - routes the sidechain-filtered detection signal to the output for auditioning what the gate hears, off by default
 - **External sidechain input** - an optional second input bus (disabled by default) lets the detection path be keyed from another track instead of the main input
-- Full state save/recall via `AudioProcessorValueTreeState`
+- **Presets** *(v0.2.0)* - nine factory presets plus full user preset save/load/import/export, with a German-localised preset bar frame (falls back to English)
+- Full state save/recall via `AudioProcessorValueTreeState`, tolerant of older (v0.1.0) sessions
 
 ## Signal flow
 
 ```
-                    +-- SC HPF (20-500 Hz) --> stereo-linked max|.| --> peak envelope follower --+
-                    |                                                                             |
-Input --> Lookahead |                    hysteresis comparator + hold timer + knee blend + duck <-+
+                    +-- SC HPF (20-500 Hz) --> SC LPF (1-16 kHz) --> stereo-linked max|.| --> peak envelope follower --+
+                    |                                                                                                  |
+Input --> Lookahead |                                hysteresis comparator + hold timer + knee blend + duck <---------+
  (or Sidechain      |                                                    |
-  bus, if enabled)  |                                        attack/release gain ramp (dB domain)
+  bus, if enabled)  |                     program-dependent attack/release gain ramp (dB domain)
     |               |                                                    |
     +---------------+------------------------------------------------> x (gain), or Listen output --> Output
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the hysteresis/hold state machine, the knee/duck/listen additions, the external sidechain input, and the lookahead latency-reporting strategy - and [`docs/manual.md`](docs/manual.md) for the user-facing parameter reference and mixing tips.
+See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the hysteresis/hold state machine, the knee/duck/listen additions, the external sidechain input, the v0.2.0 SC LPF and program-dependent ramp, and the lookahead latency-reporting strategy - and [`docs/manual.md`](docs/manual.md) for the user-facing parameter reference and mixing tips. [`docs/design-brief.md`](docs/design-brief.md) documents the research-derived sourcing behind the v0.2.0 voicing pass.
 
 ## Roadmap
 
@@ -50,7 +52,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, inclu
 |---|---|---|
 | M0 | Bootstrap - project skeleton, CI, docs | Done |
 | M1 | DSP completion - knee, duck mode, listen mode, external sidechain input, broadened test suite | Done |
-| M2 | Presets & state recall | Planned |
+| M2 | Presets & state recall, research-derived deep-dive voicing pass, DE localisation | Done |
 | M3 | Custom GUI & accessibility | Planned |
 | M4 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
 <!-- ==END BODY== -->

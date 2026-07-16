@@ -16,6 +16,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     auto* rangeParam = processor.apvts.getParameter (ParamIDs::range);
     auto* lookaheadParam = processor.apvts.getParameter (ParamIDs::lookahead);
     auto* scHighpassParam = processor.apvts.getParameter (ParamIDs::scHighpass);
+    auto* scLowpassParam = processor.apvts.getParameter (ParamIDs::scLowpass);
     auto* kneeParam = processor.apvts.getParameter (ParamIDs::knee);
     auto* duckParam = processor.apvts.getParameter (ParamIDs::duck);
     auto* listenParam = processor.apvts.getParameter (ParamIDs::listen);
@@ -27,6 +28,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     REQUIRE (rangeParam != nullptr);
     REQUIRE (lookaheadParam != nullptr);
     REQUIRE (scHighpassParam != nullptr);
+    REQUIRE (scLowpassParam != nullptr);
     REQUIRE (kneeParam != nullptr);
     REQUIRE (duckParam != nullptr);
     REQUIRE (listenParam != nullptr);
@@ -38,6 +40,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     rangeParam->setValueNotifyingHost (rangeParam->convertTo0to1 (-45.0f));
     lookaheadParam->setValueNotifyingHost (lookaheadParam->convertTo0to1 (12.0f));
     scHighpassParam->setValueNotifyingHost (scHighpassParam->convertTo0to1 (200.0f));
+    scLowpassParam->setValueNotifyingHost (scLowpassParam->convertTo0to1 (6000.0f));
     kneeParam->setValueNotifyingHost (kneeParam->convertTo0to1 (8.0f));
     duckParam->setValueNotifyingHost (1.0f);
     listenParam->setValueNotifyingHost (1.0f);
@@ -49,6 +52,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     const auto savedRange = rangeParam->getValue();
     const auto savedLookahead = lookaheadParam->getValue();
     const auto savedScHighpass = scHighpassParam->getValue();
+    const auto savedScLowpass = scLowpassParam->getValue();
     const auto savedKnee = kneeParam->getValue();
     const auto savedDuck = duckParam->getValue();
     const auto savedListen = listenParam->getValue();
@@ -66,6 +70,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     rangeParam->setValueNotifyingHost (rangeParam->getDefaultValue());
     lookaheadParam->setValueNotifyingHost (lookaheadParam->getDefaultValue());
     scHighpassParam->setValueNotifyingHost (scHighpassParam->getDefaultValue());
+    scLowpassParam->setValueNotifyingHost (scLowpassParam->getDefaultValue());
     kneeParam->setValueNotifyingHost (kneeParam->getDefaultValue());
     duckParam->setValueNotifyingHost (duckParam->getDefaultValue());
     listenParam->setValueNotifyingHost (listenParam->getDefaultValue());
@@ -77,6 +82,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     REQUIRE (rangeParam->getValue() != Catch::Approx (savedRange));
     REQUIRE (lookaheadParam->getValue() != Catch::Approx (savedLookahead));
     REQUIRE (scHighpassParam->getValue() != Catch::Approx (savedScHighpass));
+    REQUIRE (scLowpassParam->getValue() != Catch::Approx (savedScLowpass));
     REQUIRE (kneeParam->getValue() != Catch::Approx (savedKnee));
     REQUIRE (duckParam->getValue() != Catch::Approx (savedDuck));
     REQUIRE (listenParam->getValue() != Catch::Approx (savedListen));
@@ -90,6 +96,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     CHECK (rangeParam->getValue() == Catch::Approx (savedRange).margin (1e-6));
     CHECK (lookaheadParam->getValue() == Catch::Approx (savedLookahead).margin (1e-6));
     CHECK (scHighpassParam->getValue() == Catch::Approx (savedScHighpass).margin (1e-6));
+    CHECK (scLowpassParam->getValue() == Catch::Approx (savedScLowpass).margin (1e-6));
     CHECK (kneeParam->getValue() == Catch::Approx (savedKnee).margin (1e-6));
     CHECK (duckParam->getValue() == Catch::Approx (savedDuck).margin (1e-6));
     CHECK (listenParam->getValue() == Catch::Approx (savedListen).margin (1e-6));

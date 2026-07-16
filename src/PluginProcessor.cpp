@@ -3,6 +3,56 @@
 #include "params/ParameterIds.h"
 #include "params/ParameterLayout.h"
 
+#include <BinaryData.h>
+
+namespace
+{
+    // The small, Silentium-specific config surface PresetManager needs (see
+    // src/presets/PresetManager.h's class docs) - everything else about the
+    // preset system is fully generic and portable across the suite (see
+    // basilica-audio/nave's docs/preset-system-notes.md, the M2 pilot's
+    // replication recipe).
+    basilica::presets::PresetManagerConfig makePresetManagerConfig()
+    {
+        // JucePlugin_CFBundleIdentifier expands to a raw (unquoted) token
+        // sequence, not a string literal - JUCE_STRINGIFY() is the
+        // documented way to turn it into one. This is always
+        // "com.yvesvogl.silentium" here (BUNDLE_ID in CMakeLists.txt),
+        // matching the "plugin" field baked into every
+        // presets/factory/*.json file.
+        basilica::presets::PresetManagerConfig config;
+        config.pluginId = JUCE_STRINGIFY (JucePlugin_CFBundleIdentifier);
+        config.pluginName = JucePlugin_Name;
+        config.manufacturerName = "Yves Vogl";
+        config.pluginVersion = JucePlugin_VersionString;
+        // userPresetsDirectoryOverrideForTests intentionally left
+        // default-constructed (empty) - production instances always use the
+        // real platform-standard preset location (see PresetManager.h).
+        return config;
+    }
+
+    // BinaryData symbol names are derived from the presets/factory/*.json
+    // file names passed to juce_add_binary_data() in CMakeLists.txt (dots
+    // become underscores) - this list must stay in sync with that SOURCES
+    // list. Order here only affects factory-preset iteration order before
+    // getAllPresets() re-sorts alphabetically, so it isn't otherwise
+    // significant.
+    std::vector<basilica::presets::FactoryPresetAsset> makeFactoryPresetAssets()
+    {
+        return {
+            { BinaryData::default_json, BinaryData::default_jsonSize },
+            { BinaryData::surgicalMute_json, BinaryData::surgicalMute_jsonSize },
+            { BinaryData::naturalDecay_json, BinaryData::naturalDecay_jsonSize },
+            { BinaryData::pickAttackFocus_json, BinaryData::pickAttackFocus_jsonSize },
+            { BinaryData::diKeyedWorkflow_json, BinaryData::diKeyedWorkflow_jsonSize },
+            { BinaryData::ambientSustain_json, BinaryData::ambientSustain_jsonSize },
+            { BinaryData::chugLock_json, BinaryData::chugLock_jsonSize },
+            { BinaryData::duckUnderLead_json, BinaryData::duckUnderLead_jsonSize },
+            { BinaryData::listenCheck_json, BinaryData::listenCheck_jsonSize },
+        };
+    }
+}
+
 //==============================================================================
 SilentiumAudioProcessor::SilentiumAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -14,7 +64,8 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
                           // isBusesLayoutSupported() and processBlock() for how a
                           // disabled/unconnected sidechain falls back to self-detection.
                           .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
-      apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
+      apvts (*this, nullptr, "PARAMETERS", createParameterLayout()),
+      presetManager (apvts, makePresetManagerConfig(), makeFactoryPresetAssets())
 {
     thresholdDb = apvts.getRawParameterValue (ParamIDs::threshold);
     attackMs = apvts.getRawParameterValue (ParamIDs::attack);
@@ -23,6 +74,7 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     rangeDb = apvts.getRawParameterValue (ParamIDs::range);
     lookaheadMs = apvts.getRawParameterValue (ParamIDs::lookahead);
     scHighpassHz = apvts.getRawParameterValue (ParamIDs::scHighpass);
+    scLowpassHz = apvts.getRawParameterValue (ParamIDs::scLowpass);
     kneeDb = apvts.getRawParameterValue (ParamIDs::knee);
     duckMode = apvts.getRawParameterValue (ParamIDs::duck);
     listenMode = apvts.getRawParameterValue (ParamIDs::listen);
@@ -34,9 +86,15 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     jassert (rangeDb != nullptr);
     jassert (lookaheadMs != nullptr);
     jassert (scHighpassHz != nullptr);
+    jassert (scLowpassHz != nullptr);
     jassert (kneeDb != nullptr);
     jassert (duckMode != nullptr);
     jassert (listenMode != nullptr);
+
+    // M2 default resolution: user "Default" preset > factory "Default"
+    // preset > the ParameterLayout defaults apvts was just constructed
+    // with above (see PresetManager::applyStartupDefault()'s docs).
+    presetManager.applyStartupDefault();
 }
 
 SilentiumAudioProcessor::~SilentiumAudioProcessor() = default;
@@ -116,6 +174,7 @@ void SilentiumAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     engine.setRangeDb (rangeDb->load (std::memory_order_relaxed));
     engine.setLookaheadMs (lookaheadMs->load (std::memory_order_relaxed));
     engine.setScHighpassHz (scHighpassHz->load (std::memory_order_relaxed));
+    engine.setScLowpassHz (scLowpassHz->load (std::memory_order_relaxed));
     engine.setKneeDb (kneeDb->load (std::memory_order_relaxed));
     engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
     engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);
@@ -188,6 +247,7 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     engine.setRangeDb (rangeDb->load (std::memory_order_relaxed));
     engine.setLookaheadMs (lookaheadMs->load (std::memory_order_relaxed));
     engine.setScHighpassHz (scHighpassHz->load (std::memory_order_relaxed));
+    engine.setScLowpassHz (scLowpassHz->load (std::memory_order_relaxed));
     engine.setKneeDb (kneeDb->load (std::memory_order_relaxed));
     engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
     engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);

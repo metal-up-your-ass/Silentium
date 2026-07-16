@@ -49,11 +49,19 @@ namespace slnt
             juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
         //======================================================================
-        // Attack: ramp time from closed (Range) to open (0 dB).
+        // Attack: ramp time from closed (Range) to open (0 dB). v0.2.0 lowers
+        // the floor from 0.1 ms to 0 ms (docs/design-brief.md's Attack
+        // section - Nail The Mix: "0.1ms to 1ms, sometimes even 0ms if your
+        // gate allows lookahead", and Silentium has lookahead). A true
+        // log10 mapping (makeLogTimeRange) cannot include 0 (log(0) is
+        // undefined), so this uses a skewed NormalisableRange instead: skew
+        // 0.25 biases slider/automation resolution toward the low end,
+        // approximating the old log curve's usable feel while still
+        // including the new 0 ms floor exactly.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { ParamIDs::attack, 1 },
             "Attack",
-            makeLogTimeRange (0.1f, 50.0f),
+            juce::NormalisableRange<float> (0.0f, 50.0f, 0.01f, 0.25f),
             1.0f,
             juce::AudioParameterFloatAttributes().withLabel ("ms")));
 
@@ -61,10 +69,18 @@ namespace slnt
         // Hold: minimum time the gate stays open, retriggered while the
         // envelope stays above the close threshold. Range must include 0, so
         // this uses a plain linear range rather than makeLogTimeRange.
+        // v0.2.0 lowers the ceiling from 500 ms to 250 ms (docs/design-
+        // brief.md's Hold section: Nail The Mix cites 10-50 ms as the
+        // practical band and FabFilter Pro-G's own ceiling is 250 ms; v1's
+        // 500 ms had no source). A v0.1.0 state with Hold > 250 ms (only
+        // possible via a hand-edited/future state, since v0.1.0's own
+        // ceiling was 500 ms) clamps to 250 ms on load via JUCE's own
+        // NormalisableRange::convertTo0to1 clamping - see
+        // tests/DesignBriefTests.cpp's Hold range test.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { ParamIDs::hold, 1 },
             "Hold",
-            juce::NormalisableRange<float> (0.0f, 500.0f, 0.1f),
+            juce::NormalisableRange<float> (0.0f, 250.0f, 0.1f),
             20.0f,
             juce::AudioParameterFloatAttributes().withLabel ("ms")));
 
@@ -107,6 +123,20 @@ namespace slnt
             "SC HPF",
             makeLogFrequencyRange (20.0f, 500.0f),
             80.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        //======================================================================
+        // SC LPF (v0.2.0): sidechain-only low-pass, in series after SC HPF,
+        // so the detection path can be narrowed toward the documented
+        // 2-5 kHz pick-attack transient band instead of only having its
+        // bottom end rejected. Defaults fully open (16 kHz) so a v0.1.0
+        // session that never touches it reproduces v0.1.0 behaviour exactly
+        // - see tests/DesignBriefTests.cpp's SC LPF null test.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::scLowpass, 1 },
+            "SC LPF",
+            makeLogFrequencyRange (1000.0f, 16000.0f),
+            16000.0f,
             juce::AudioParameterFloatAttributes().withLabel ("Hz")));
 
         //======================================================================

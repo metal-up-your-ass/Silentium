@@ -10,7 +10,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment ta
 # here at the top level avoids it being enabled implicitly deeper inside
 # JUCE's CMake helpers, which has been observed to break Ninja's generate
 # step (missing CMAKE_C_COMPILE_OBJECT rule variable).
-project(Silentium VERSION 0.1.1 LANGUAGES C CXX)
+project(Silentium VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,6 +56,29 @@ juce_add_plugin(Silentium
 )
 
 # ==============================================================================
+# Embedded assets: M2 preset system factory presets (presets/factory/*.json)
+# and the M2 i18n frame's German translation (resources/i18n/de.txt). See
+# src/presets/PresetManager.h and src/presets/Localisation.h - both consume
+# these purely via BinaryData:: symbols passed in from PluginProcessor.cpp/
+# PluginEditor.cpp, never by including BinaryData.h themselves, so they stay
+# portable across the suite (see basilica-audio/nave's
+# docs/preset-system-notes.md, the M2 pilot's replication recipe).
+# ==============================================================================
+
+juce_add_binary_data(SilentiumBinaryData SOURCES
+    presets/factory/default.json
+    presets/factory/surgicalMute.json
+    presets/factory/naturalDecay.json
+    presets/factory/pickAttackFocus.json
+    presets/factory/diKeyedWorkflow.json
+    presets/factory/ambientSustain.json
+    presets/factory/chugLock.json
+    presets/factory/duckUnderLead.json
+    presets/factory/listenCheck.json
+    resources/i18n/de.txt
+)
+
+# ==============================================================================
 # SharedCode: an INTERFACE target carrying the plugin's sources, definitions,
 # and library links so that both the plugin targets (AU/VST3/Standalone) and
 # the Tests executable compile the exact same code (Pamplejuce pattern, see
@@ -87,9 +110,11 @@ target_compile_definitions(SharedCode INTERFACE
 target_link_libraries(SharedCode INTERFACE
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_gui_basics
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
+    SilentiumBinaryData
 )
 
 target_link_libraries(Silentium PRIVATE SharedCode)
