@@ -23,6 +23,7 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     numChannels = spec.numChannels;
 
     scHighPass.prepare (spec);
+    scLowPass.prepare (spec);
 
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
@@ -48,6 +49,8 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     rangeSmoothed.setCurrentAndTargetValue (lastRangeDb);
     scHighpassSmoothed.reset (sampleRate, smoothingTimeSeconds);
     scHighpassSmoothed.setCurrentAndTargetValue (lastScHighpassHz);
+    scLowpassSmoothed.reset (sampleRate, smoothingTimeSeconds);
+    scLowpassSmoothed.setCurrentAndTargetValue (lastScLowpassHz);
 
     latencySamples = computeLookaheadSamples();
     lookaheadDelay.setDelay (static_cast<float> (latencySamples));
@@ -65,11 +68,19 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     // the comment there.
     *scHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (
         sampleRate, clampBelowNyquist (lastScHighpassHz, sampleRate), filterQ);
+
+    // Same reasoning as the SC HPF priming above, for the v0.2.0 SC LPF
+    // stage: prime real coefficients here (not an identity/uninitialised
+    // state) and grow scLowPass.state's storage now so the identical
+    // assignment in process() below never allocates either.
+    *scLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (
+        sampleRate, clampBelowNyquist (lastScLowpassHz, sampleRate), filterQ);
 }
 
 void GateEngine::reset()
 {
     scHighPass.reset();
+    scLowPass.reset();
     envelopeFollower.reset();
     lookaheadDelay.reset();
 
@@ -118,6 +129,12 @@ void GateEngine::setScHighpassHz (float newFrequencyHz)
 {
     lastScHighpassHz = newFrequencyHz;
     scHighpassSmoothed.setTargetValue (newFrequencyHz);
+}
+
+void GateEngine::setScLowpassHz (float newFrequencyHz)
+{
+    lastScLowpassHz = newFrequencyHz;
+    scLowpassSmoothed.setTargetValue (newFrequencyHz);
 }
 
 void GateEngine::setKneeDb (float newKneeDb)
@@ -239,6 +256,15 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
     juce::dsp::ProcessContextReplacing<float> detectionContext (detectionSub);
     scHighPass.process (detectionContext);
 
+    // v0.2.0 SC LPF: same allocation-free coefficient-recompute pattern as
+    // the SC HPF immediately above, applied in series right after it (see
+    // the class-level topology comment in GateEngine.h). Sits entirely
+    // inside the sidechain-only detection path - never touches the main
+    // signal.
+    const auto scLowHz = clampBelowNyquist (scLowpassSmoothed.skip (static_cast<int> (numSamples)), sampleRate);
+    *scLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, scLowHz, filterQ);
+    scLowPass.process (detectionContext);
+
     // Stereo-linked combine: per-sample max(|channel|) across all channels,
     // so a signal panned to one side alone can still open the gate, and the
     // gate never shifts the stereo image (the same gain is applied to every
@@ -272,10 +298,43 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
     const auto releaseTimeSamples = std::max (1.0f, static_cast<float> (lastReleaseMs * 0.001 * sampleRate));
     const auto holdTimeSamples = std::max (0, juce::roundToInt (lastHoldMs * 0.001 * sampleRate));
 
-    // Ramp rates express "time to cross the full Range span", the standard
-    // attack/release convention also used for compressor ballistics.
-    const auto attackRatePerSample = (0.0f - rangeDbNow) / attackTimeSamples;
-    const auto releaseRatePerSample = (0.0f - rangeDbNow) / releaseTimeSamples;
+    // v0.2.0 program-dependent ramp (docs/design-brief.md's "Program-
+    // dependent gain ramp" section): rather than v0.1's fixed dB/sample
+    // linear slope (rate = full Range span / Attack(or Release)Time,
+    // applied identically no matter how far the current gain actually sits
+    // from its target), the gain computer now exponentially approaches its
+    // per-sample target: the per-sample distance-to-target shrinks by a
+    // fixed multiplier every sample, rather than by a fixed dB amount. That
+    // shape has two properties together, verified by
+    // tests/DesignBriefTests.cpp's ramp-proof test:
+    //
+    //   (a) the multiplier is calibrated (see rampCloseEnoughDb) so a
+    //       *full* Range-span transition (Range floor <-> unity) reaches
+    //       within rampCloseEnoughDb of its target in the user-facing
+    //       Attack/Release time, same as v0.1's contract for a full-scale
+    //       transition;
+    //   (b) because the SAME multiplier applies regardless of how large the
+    //       actual transition is, a *partial* transition (e.g. a few dB
+    //       overshoot near Threshold) reaches that same absolute
+    //       rampCloseEnoughDb tolerance in proportionally FEWER samples
+    //       than a full-scale one does - the defining "program dependent"
+    //       property both ISP's Time Vector Integration and dbx's
+    //       AutoDynamic are documented (though not in reproducible
+    //       algorithmic detail) to have. See docs/design-brief.md's honesty
+    //       section: this specific curve shape is this brief's own
+    //       plausible, testable proposal, not a reproduction of either
+    //       vendor's proprietary algorithm.
+    //
+    // A sustained note (envelope staying open, target staying at 0 dB) sees
+    // currentGainDb converge to and then sit flush at the target - no
+    // periodic re-modulation - which is the conservative interpretation of
+    // "eliminates modulation of sustained notes" this implementation
+    // guarantees by construction, independent of how closely this curve
+    // shape matches either hardware reference's unpublished algorithm.
+    const auto fullScaleSpanDb = std::max (std::abs (rangeDbNow), rampCloseEnoughDb * 2.0f);
+    const auto convergenceRatio = juce::jlimit (1.0e-6f, 0.999f, rampCloseEnoughDb / fullScaleSpanDb);
+    const auto attackMultiplier = std::pow (convergenceRatio, 1.0f / attackTimeSamples);
+    const auto releaseMultiplier = std::pow (convergenceRatio, 1.0f / releaseTimeSamples);
 
     const auto numChannelsToProcess = block.getNumChannels();
 
@@ -333,11 +392,12 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
             openness = 1.0f - openness;
 
         const auto targetGainDb = juce::jmap (openness, rangeDbNow, 0.0f);
+        const auto diffFromTargetDb = currentGainDb - targetGainDb;
 
-        if (targetGainDb > currentGainDb)
-            currentGainDb = std::min (targetGainDb, currentGainDb + attackRatePerSample);
-        else if (targetGainDb < currentGainDb)
-            currentGainDb = std::max (targetGainDb, currentGainDb - releaseRatePerSample);
+        if (diffFromTargetDb < 0.0f) // attacking: current below target, ramping up towards it
+            currentGainDb = targetGainDb + diffFromTargetDb * attackMultiplier;
+        else if (diffFromTargetDb > 0.0f) // releasing: current above target, ramping down towards it
+            currentGainDb = targetGainDb + diffFromTargetDb * releaseMultiplier;
 
         const auto gainLinear = juce::Decibels::decibelsToGain (currentGainDb, minusInfinityDb);
         const auto detectionChannelCount = detectionSub.getNumChannels();

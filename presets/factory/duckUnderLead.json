@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.silentium",
+    "pluginVersion": "0.2.0",
+    "name": "Duck Under Lead",
+    "category": "Guitar",
+    "parameters": {
+        "threshold": -20.0,
+        "attack": 10.0,
+        "hold": 0.0,
+        "release": 200.0,
+        "range": -10.0,
+        "lookahead": 5.0,
+        "scHighpass": 80.0,
+        "scLowpass": 16000.0,
+        "knee": 0.0,
+        "duck": 1.0,
+        "listen": 0.0
+    }
+}

@@ -18,8 +18,29 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the GitHub release for this tag (idempotent)
+        # Both release-macos and release-windows upload assets via
+        # `gh release upload`, which requires the release object to already
+        # exist for the tag - neither job created it, so both failed with
+        # "release not found" on a fresh tag push. `gh release view` first
+        # makes re-runs (e.g. after a transient build failure) idempotent
+        # instead of erroring on an already-created release.
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   release-macos:
     name: Signed macOS release
+    needs: create-release
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +122,7 @@ jobs:
 
   release-windows:
     name: Windows release (unsigned)
+    needs: create-release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

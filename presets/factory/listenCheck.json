@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.silentium",
+    "pluginVersion": "0.2.0",
+    "name": "Listen Check",
+    "category": "Guitar",
+    "parameters": {
+        "threshold": -40.0,
+        "attack": 1.0,
+        "hold": 20.0,
+        "release": 80.0,
+        "range": -60.0,
+        "lookahead": 5.0,
+        "scHighpass": 80.0,
+        "scLowpass": 16000.0,
+        "knee": 0.0,
+        "duck": 0.0,
+        "listen": 1.0
+    }
+}

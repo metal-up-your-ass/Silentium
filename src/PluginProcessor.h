@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "dsp/GateEngine.h"
+#include "presets/PresetManager.h"
 
 // Silentium: a tight lookahead noise gate with hysteresis, for silencing amp
 // hiss/hum between palm-muted chugs. Signal flow lives in GateEngine
@@ -51,6 +52,14 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // M2 preset system (.scaffold/specs/preset-system-m2.md,
+    // src/presets/PresetManager.h). Constructed after apvts (its
+    // constructor registers APVTS parameter listeners) and public so
+    // SilentiumAudioProcessorEditor's PresetBar can talk to it directly -
+    // the same "processor owns it, editor references it" pattern apvts
+    // itself already uses.
+    basilica::presets::PresetManager presetManager;
+
 private:
     GateEngine engine;
 
@@ -64,6 +73,7 @@ private:
     std::atomic<float>* rangeDb = nullptr;
     std::atomic<float>* lookaheadMs = nullptr;
     std::atomic<float>* scHighpassHz = nullptr;
+    std::atomic<float>* scLowpassHz = nullptr;
     std::atomic<float>* kneeDb = nullptr;
     std::atomic<float>* duckMode = nullptr;
     std::atomic<float>* listenMode = nullptr;

@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "params/ParameterIds.h"
+#include "presets/Localisation.h"
+
+#include <BinaryData.h>
 
 namespace
 {
@@ -10,14 +13,35 @@ namespace
     constexpr int margin = 20;
     constexpr int numKnobs = 8;
     constexpr int toggleRowHeight = 24;
+    constexpr int presetBarHeight = 28;
     constexpr int editorWidth = margin * 2 + numKnobs * knobSize + (numKnobs - 1) * margin;
-    constexpr int editorHeight = margin * 3 + labelHeight + knobSize + textBoxHeight + toggleRowHeight;
+    constexpr int editorHeight = margin * 4 + presetBarHeight + labelHeight + knobSize + textBoxHeight + toggleRowHeight;
+
+    // M2 i18n frame (.scaffold/specs/preset-system-m2.md): selects German
+    // (resources/i18n/de.txt) or falls through to English, once, at editor
+    // construction - see Localisation.h's docs. `presetBar` is a member
+    // initialised via the constructor's initialiser list, and its own
+    // constructor already calls TRANS() on every button label - member
+    // initialisers run in declaration order regardless of the order
+    // they're written in, so this helper (called from presetBar's own
+    // initialiser expression below) is what actually guarantees
+    // installLocalisation() runs before presetBar exists, not an
+    // installLocalisation() call in the constructor *body*, which would run
+    // too late.
+    basilica::presets::PresetManager& initLocalisationThenGetPresetManager (SilentiumAudioProcessor& processor)
+    {
+        basilica::presets::installLocalisation (BinaryData::de_txt, BinaryData::de_txtSize);
+        return processor.presetManager;
+    }
 }
 
 SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProcessor& processorToEdit)
     : juce::AudioProcessorEditor (&processorToEdit),
-      audioProcessor (processorToEdit)
+      audioProcessor (processorToEdit),
+      presetBar (initLocalisationThenGetPresetManager (processorToEdit))
 {
+    addAndMakeVisible (presetBar);
+
     configureKnob (thresholdKnob, ParamIDs::threshold, "Threshold");
     configureKnob (attackKnob, ParamIDs::attack, "Attack");
     configureKnob (holdKnob, ParamIDs::hold, "Hold");
@@ -64,6 +88,9 @@ void SilentiumAudioProcessorEditor::configureToggle (Toggle& toggle, const juce:
 void SilentiumAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds().reduced (margin);
+
+    presetBar.setBounds (bounds.removeFromTop (presetBarHeight));
+    bounds.removeFromTop (margin);
 
     // Duck/Listen toggles: a row along the bottom, reserved first so the
     // knob row above gets the remaining height.
