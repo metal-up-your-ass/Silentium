@@ -41,6 +41,23 @@ namespace basilica::gui
         // dial.
         setInterceptsMouseClicks (false, false);
 
+        // PR #25 fix (rendering-quality review of docs/gui-preview.png): the
+        // face and needle are both baked at 1024x1024 but this component is
+        // typically laid out at ~200px, so paint() is always a heavy
+        // DOWNSCALE, not an upscale. setBufferedToImage(true) gives this
+        // Component its own StandardCachedComponentImage backing store
+        // (juce_Component.cpp) so the downscale happens once per repaint
+        // into a cached bitmap at the component's actual device-pixel size
+        // rather than re-touching the full 1024px source on every blit -
+        // JUCE 8.0.14's recommended path for a static-composition (face +
+        // one rotating overlay) skeuomorphic component like this one, per
+        // the module's own bufferToImage usage pattern
+        // (juce_gui_basics/components/juce_Component.cpp). This does not by
+        // itself change resampling quality - that is the
+        // setImageResamplingQuality() call in paint() below - it only
+        // caches the *result*.
+        setBufferedToImage (true);
+
         startTimerHz ((int) timerHz);
     }
 
@@ -97,6 +114,21 @@ namespace basilica::gui
     {
         const auto bounds = getLocalBounds().toFloat();
 
+        // PR #25 fix: both layers are 1024x1024 source assets drawn into a
+        // ~200px component, i.e. always downscaled. Graphics defaults to
+        // mediumResamplingQuality (juce_GraphicsContext.h) - on the
+        // CoreGraphics backend that is kCGInterpolationMedium vs.
+        // highResamplingQuality's kCGInterpolationHigh
+        // (juce_CoreGraphicsContext_mac.mm, JUCE 8.0.14); the low-level
+        // software rasteriser (juce_RenderingHelpers.h) makes the same
+        // low/medium/high distinction for its own area-averaging resample
+        // filter. Raising it here sharpens exactly the thin-needle-taper
+        // edges Yves flagged as blurry at rendered size, at the cost of a
+        // (here negligible, buffered-and-cached) heavier per-repaint
+        // resample. Must be set before EVERY drawImage*/drawImageTransformed
+        // call in this method - it is graphics-state, not global.
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+
         if (assets.face.isValid())
             g.drawImage (assets.face, bounds);
 
@@ -116,6 +148,13 @@ namespace basilica::gui
             const auto transform = juce::AffineTransform::scale (sx, sy)
                                         .rotated (radians, pivotX, pivotY);
 
+            // Same Graphics& / same paint() call as the face draw above with
+            // no intervening saveState()/restoreState() or new Graphics
+            // context, so the highResamplingQuality set at the top of this
+            // method already applies here too - drawImageTransformed reads
+            // the context's current interpolation-quality state exactly like
+            // drawImage does (juce_RenderingHelpers.h / CoreGraphicsContext's
+            // setInterpolationQuality persists per-context, not per-call).
             g.drawImageTransformed (assets.needle, transform);
         }
     }
