@@ -3,15 +3,16 @@
 
 namespace
 {
-    // Copied verbatim from .scaffold/gui-assets/render_vu_meter.py's TICKS
-    // table (the actual generator of the face's engraved arc) - (dB, degrees
-    // clockwise from straight-up, matching juce::AffineTransform::rotated's
-    // "clockwise" convention once the source PNG is read as ordinary
-    // pixel-space image data - verified against vu_brass_preview.png, whose
-    // needle sweeps from lower-left (-20 dB) up through top-centre (0 dB) to
-    // upper-right (+3 dB), i.e. clockwise as dB increases). Not evenly
-    // spaced - this is a hand-tuned classic-VU arc (README's own words), not
-    // a physically derived curve.
+    // Copied verbatim from .scaffold/gui-assets/render_vu_dome_v1.py's TICKS
+    // table (the actual generator of the circular dome face's engraved arc)
+    // - (dB, degrees clockwise from straight-up, matching
+    // juce::AffineTransform::rotated's "clockwise" convention once the
+    // source PNG is read as ordinary pixel-space image data). v0.3.1: the
+    // vu-dome-v1 asset family sweeps a classic ~93-degree VU arc (-50..+43,
+    // 0 dB right-of-centre) - the old vu-brass-v1 80-degree table does NOT
+    // match this asset and must never be restored without also restoring
+    // the old rectangular face art. Not evenly spaced - hand-tuned classic
+    // VU arc, not a physically derived curve.
     struct Tick
     {
         float db;
@@ -19,10 +20,10 @@ namespace
     };
 
     constexpr std::array<Tick, 11> ticks {
-        Tick { -20.0f, -52.0f }, Tick { -10.0f, -40.0f }, Tick { -7.0f, -33.0f },
-        Tick { -5.0f, -26.0f }, Tick { -3.0f, -19.0f }, Tick { -2.0f, -14.0f },
-        Tick { -1.0f, -8.0f }, Tick { 0.0f, 0.0f }, Tick { 1.0f, 9.0f },
-        Tick { 2.0f, 18.0f }, Tick { 3.0f, 28.0f }
+        Tick { -20.0f, -50.0f }, Tick { -10.0f, -36.0f }, Tick { -7.0f, -28.0f },
+        Tick { -5.0f, -20.0f }, Tick { -3.0f, -11.0f }, Tick { -2.0f, -5.0f },
+        Tick { -1.0f, 2.0f }, Tick { 0.0f, 9.0f }, Tick { 1.0f, 20.0f },
+        Tick { 2.0f, 31.0f }, Tick { 3.0f, 43.0f }
     };
 }
 

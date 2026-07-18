@@ -12,22 +12,24 @@
 
 class SilentiumAudioProcessor;
 
-// M3 GUI pilot: the suite's first photoreal skeuomorphic editor, built from
-// the reusable src/gui/ component family (FilmstripKnob, FilmstripToggle,
+// v0.3.1 visual overhaul editor: photoreal skeuomorphic UI built from the
+// reusable src/gui/ component family (FilmstripKnob, FilmstripToggle,
 // AnalogMeter, BasilicaLookAndFeel) plus the pre-rendered faceplate PNG (see
-// .scaffold/gui-assets/faceplate-silentium-v1/README.md). Every visible
+// .scaffold/gui-assets/faceplate-silentium-v2/README.md). Every visible
 // control is wired to a real APVTS parameter or a real metering value - no
 // dead decoration, per the basilica-gui-design skill's binding spec.
 //
-// Layout: a single "knobLayout" table (see PluginEditor.cpp) positions every
-// FilmstripKnob AND its juce::Label caption from the SAME base-resolution
-// coordinates the faceplate's engraved control-bay grid was authored
-// against, so a later pass that bakes real per-control text into the
-// faceplate art (see BasilicaLookAndFeel.h's docs) only needs to hide/remove
-// the juce::Label instances - no control moves.
+// TYPOGRAPHY / LABELS: since v0.3.1 every static caption (title, knob
+// labels, toggle labels) is ENGRAVED into the faceplate PNG itself (EB
+// Garamond, gold inlay, rendered by the Blender pipeline) - there are no
+// juce::Label captions in this editor any more. The controls' positions come
+// from the same slnt::layout table the plate art was authored against
+// (src/PluginEditorLayout.h documents that contract), so the baked labels
+// always line up with the live controls. Accessible names are unaffected:
+// every control still carries its parameter name via setTitle().
 //
 // Window scaling is STEPPED (100/150/200%, a UA-style corner control next to
-// the preset bar, persisted as a plain property on the APVTS state tree -
+// the preset bar, persisted as a plain property on the APVTS state tree) -
 // not a free/continuous resize, because the backing art is pre-rendered at
 // fixed density tiers (see src/gui/ImageDensity.h).
 class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -55,14 +57,12 @@ private:
     struct Knob
     {
         std::unique_ptr<basilica::gui::FilmstripKnob> slider;
-        juce::Label label;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
     struct Toggle
     {
         std::unique_ptr<basilica::gui::FilmstripToggle> button;
-        juce::Label label;
         std::unique_ptr<ButtonAttachment> attachment;
     };
 
@@ -90,8 +90,6 @@ private:
 
     static constexpr int numToggles = 2;
     std::array<Toggle, numToggles> toggles;
-
-    juce::Label titleLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessorEditor)
 };

@@ -12,12 +12,14 @@
 // second hand-copied set of constants that could silently drift out of
 // sync.
 //
-// This is Silentium-specific, art-authored geometry (derived from
-// .scaffold/gui-assets/render_faceplate.py's Blender scene coordinates), not
-// a suite-reusable pattern like src/gui/'s FilmstripKnob/FilmstripToggle/
-// AnalogMeter/BasilicaLookAndFeel component family - each sibling plugin's
-// own faceplate has a different bay layout and will get its own equivalent
-// header when it reaches its M3 GUI pass.
+// v0.3.1 visual overhaul: this table was re-authored TOGETHER with
+// .scaffold/gui-assets/render_faceplate_silentium_v2.py (the Blender script
+// that bakes the engraved EB Garamond labels into the faceplate PNG) and
+// faceplate-silentium-v2/layout-manifest.json - all three carry the same
+// px numbers, and the engraved label positions are derived from the same
+// integer-division grid math resized() uses, so baked labels and live
+// controls cannot drift. If any number here changes, the faceplate must be
+// re-rendered and the manifest updated in the same commit.
 namespace slnt::layout
 {
     // juce::Rectangle/Point's constructors are not constexpr (JUCE 8.0.14),
@@ -31,31 +33,30 @@ namespace slnt::layout
     const juce::Point<int> roundelCentre1x { 450, 82 };
     constexpr int roundelRadius1x = 35;
 
-    // A-04 fix (M3 a11y review): row-1 knob labels used to collide with the
-    // meter bays' bottom edge - the old meterLBay1x/meterRBay1x bottom edge
-    // (128 + 158 = 286) sat 21px BELOW the old controlBay1x top (265), so
-    // row-1 captions were drawn directly over the still-opaque VU meter
-    // dial area (visually confirmed in the pre-fix docs/gui-preview.png,
-    // and the direct cause of A-03's worst-case ~1.4:1 contrast reading).
-    // Both bays are now sized/positioned together with an explicit margin
-    // between every pair of adjacent bays - see
-    // tests/gui/EditorLayoutTests.cpp's layout-invariant tests, which assert
-    // directly against these constants:
-    //   meterLBay1x/meterRBay1x bottom (128 + 150 = 278)
-    //     -> 6px margin ->
-    //   controlBay1x top (284), bottom (284 + 216 = 500)
+    // v0.3.1: CIRCULAR vu-dome meters (vu-dome-v1 asset family) replace the
+    // old 286x150 rectangular meter bays - square 190px bays, dial centres
+    // (280, 217) and (620, 217), symmetric about the plate centre. Margins
+    // between vertically adjacent bays stay explicit and are asserted by
+    // tests/gui/EditorLayoutTests.cpp:
+    //   headerBay bottom (46 + 71 = 117)
+    //     -> 5px margin ->
+    //   meter bays y 122, bottom (122 + 190 = 312)
     //     -> 7px margin ->
-    //   auxBay1x top (507)
-    const juce::Rectangle<int> meterLBay1x { 145, 128, 286, 150 };
-    const juce::Rectangle<int> meterRBay1x { 469, 128, 286, 150 };
+    //   controlBay top (319), bottom (319 + 205 = 524)
+    //     -> 7px margin ->
+    //   auxBay top (531), bottom (531 + 44 = 575)
+    const juce::Rectangle<int> meterLBay1x { 185, 122, 190, 190 };
+    const juce::Rectangle<int> meterRBay1x { 525, 122, 190, 190 };
 
-    const juce::Rectangle<int> controlBay1x { 82, 284, 736, 216 };
-    const juce::Rectangle<int> auxBay1x { 109, 507, 682, 44 };
+    const juce::Rectangle<int> controlBay1x { 82, 319, 735, 205 };
+    const juce::Rectangle<int> auxBay1x { 109, 531, 682, 44 };
 
     // Extra strip above the plate art for the preset bar + scale control -
     // interactive text/menus don't fit the plate's own thin engraved aux
     // strip at any legible size, so they live in their own band instead (the
-    // plate's aux bay is used purely for the Duck/Listen toggles).
+    // plate's aux bay is used purely for the Duck/Listen toggles). Styled as
+    // an integrated header strip by BasilicaLookAndFeel since v0.3.1 (brass
+    // buttons + recessed preset-name display), not a raw-JUCE toolbar.
     constexpr int topStripHeight1x = 32;
     constexpr int topStripGap1x = 6;
     constexpr int scaleButtonWidth1x = 64;
@@ -66,11 +67,19 @@ namespace slnt::layout
     constexpr std::array<float, 3> scaleSteps { 1.0f, 1.5f, 2.0f };
 
     // Control-bay knob grid: 5 columns x 2 rows (9 knobs used, row 2's 5th
-    // cell left empty) - the control bay is wide and shallow, so a 5-wide
-    // grid keeps each knob close to its original v0.1/v0.2 ~100px visual
-    // size instead of a cramped 3x3 grid.
+    // cell left empty). cellW = 735/5 = 147 exactly; cellH = 205/2 = 102
+    // (integer division, matching resized()). The top 16px of each cell is
+    // the label band - since v0.3.1 the labels there are ENGRAVED INTO the
+    // faceplate PNG (EB Garamond, gold inlay), not juce::Labels; the band
+    // constant remains so the knob's vertical centring math (and this
+    // header's contract with the Blender script) is unchanged.
     constexpr int gridCols = 5;
     constexpr int gridRows = 2;
     constexpr int knobLabelHeight1x = 16;
-    constexpr int knobDiameter1x = 90;
+    constexpr int knobDiameter1x = 84;
+
+    // v0.3.1: fixed toggle housing size (toggle-brass-v2 renders a complete
+    // housed switch at 40px @1x / 80px @2x) - previously derived from the
+    // aux bay height with a 34px cap.
+    constexpr int toggleSize1x = 40;
 }

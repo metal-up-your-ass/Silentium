@@ -18,7 +18,7 @@ namespace
     struct KnobLayoutEntry
     {
         const char* parameterId;
-        const char* labelText;
+        const char* labelText; // accessible name AND the text engraved on the plate
         int col;
         int row;
     };
@@ -26,7 +26,10 @@ namespace
     // Signal-flow-grouped: row 1 is the primary gate shape (Threshold
     // through Range), row 2 is the voicing/refinement controls (Lookahead,
     // the sidechain filters, Knee) - the same grouping ParameterLayout.cpp's
-    // own comments use.
+    // own comments use. The labelText strings must match the labels
+    // render_faceplate_silentium_v2.py bakes into the plate at the same grid
+    // cells (uppercased there; the mixed-case form here is what screen
+    // readers announce).
     constexpr std::array<KnobLayoutEntry, 9> knobLayout {
         KnobLayoutEntry { ParamIDs::threshold, "Threshold", 0, 0 },
         KnobLayoutEntry { ParamIDs::attack, "Attack", 1, 0 },
@@ -84,13 +87,16 @@ namespace
 
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
+        // v0.3.1: circular glass-dome meter layers (vu-dome-v1), 200px @1x /
+        // 400px @2x - sized so the visible bezel fills the 190px meter bay
+        // at 100% with NO upscaling (see AnalogMeter::contentFractionOfCanvas).
         basilica::gui::AnalogMeter::Assets assets;
-        assets.face1x = loadImage (BinaryData::vu_brass_face_480x270_png, BinaryData::vu_brass_face_480x270_pngSize);
-        assets.face2x = loadImage (BinaryData::vu_brass_face_960x540_png, BinaryData::vu_brass_face_960x540_pngSize);
-        assets.needle1x = loadImage (BinaryData::vu_brass_needle_480x270_png, BinaryData::vu_brass_needle_480x270_pngSize);
-        assets.needle2x = loadImage (BinaryData::vu_brass_needle_960x540_png, BinaryData::vu_brass_needle_960x540_pngSize);
-        assets.glass1x = loadImage (BinaryData::vu_brass_glass_480x270_png, BinaryData::vu_brass_glass_480x270_pngSize);
-        assets.glass2x = loadImage (BinaryData::vu_brass_glass_960x540_png, BinaryData::vu_brass_glass_960x540_pngSize);
+        assets.face1x = loadImage (BinaryData::vu_dome_face_200x200_png, BinaryData::vu_dome_face_200x200_pngSize);
+        assets.face2x = loadImage (BinaryData::vu_dome_face_400x400_png, BinaryData::vu_dome_face_400x400_pngSize);
+        assets.needle1x = loadImage (BinaryData::vu_dome_needle_200x200_png, BinaryData::vu_dome_needle_200x200_pngSize);
+        assets.needle2x = loadImage (BinaryData::vu_dome_needle_400x400_png, BinaryData::vu_dome_needle_400x400_pngSize);
+        assets.glass1x = loadImage (BinaryData::vu_dome_glass_200x200_png, BinaryData::vu_dome_glass_200x200_pngSize);
+        assets.glass2x = loadImage (BinaryData::vu_dome_glass_400x400_png, BinaryData::vu_dome_glass_400x400_pngSize);
         return assets;
     }
 }
@@ -104,25 +110,19 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
 {
     setLookAndFeel (&lookAndFeel);
 
-    facePlateImage1x = loadImage (BinaryData::faceplate_silentium_900x600_png, BinaryData::faceplate_silentium_900x600_pngSize);
-    facePlateImage2x = loadImage (BinaryData::faceplate_silentium_1800x1200_png, BinaryData::faceplate_silentium_1800x1200_pngSize);
+    facePlateImage1x = loadImage (BinaryData::faceplate_silentium_v2_900x600_png,
+                                  BinaryData::faceplate_silentium_v2_900x600_pngSize);
+    facePlateImage2x = loadImage (BinaryData::faceplate_silentium_v2_1800x1200_png,
+                                  BinaryData::faceplate_silentium_v2_1800x1200_pngSize);
     brandIconImage = loadImage (BinaryData::icon256_png, BinaryData::icon256_pngSize);
 
     // Creation order below doubles as the accessibility/keyboard focus
     // order (JUCE's default FocusTraverser walks children in z-order,
     // i.e. creation order, when no custom traverser is installed) - kept
-    // deliberately matching the visual reading order: header/scale control,
-    // preset bar, meters (GR then Input), knob grid row-by-row, then the
-    // two footer toggles.
-    titleLabel.setText ("Silentium", juce::dontSendNotification);
-    titleLabel.setJustificationType (juce::Justification::centredLeft);
-    titleLabel.setFont (juce::Font (juce::FontOptions {}
-                                        .withName (juce::Font::getDefaultSerifFontName())
-                                        .withHeight (26.0f)
-                                        .withStyle ("Bold")));
-    titleLabel.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (titleLabel);
-
+    // deliberately matching the visual reading order: preset bar + scale
+    // control, meters (GR then Input), knob grid row-by-row, then the two
+    // footer toggles. (The title and all captions are ENGRAVED into the
+    // faceplate art since v0.3.1 - no juce::Labels in this editor.)
     addAndMakeVisible (presetBar);
 
     // A-05 fix (M3 a11y review): button text/title are set from
@@ -139,8 +139,10 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     addAndMakeVisible (gainReductionMeter);
     addAndMakeVisible (inputLevelMeter);
 
-    const auto knobStrip1x = loadImage (BinaryData::knob_brass_strip_160px_128f_png, BinaryData::knob_brass_strip_160px_128f_pngSize);
-    const auto knobStrip2x = loadImage (BinaryData::knob_brass_strip_320px_128f_png, BinaryData::knob_brass_strip_320px_128f_pngSize);
+    const auto knobStrip1x = loadImage (BinaryData::knob_brass_v2_strip_160px_128f_png,
+                                        BinaryData::knob_brass_v2_strip_160px_128f_pngSize);
+    const auto knobStrip2x = loadImage (BinaryData::knob_brass_v2_strip_320px_128f_png,
+                                        BinaryData::knob_brass_v2_strip_320px_128f_pngSize);
 
     for (size_t i = 0; i < knobLayout.size(); ++i)
     {
@@ -149,8 +151,10 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
     }
 
-    const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_strip_100px_4f_png, BinaryData::toggle_brass_strip_100px_4f_pngSize);
-    const auto toggleStrip2x = loadImage (BinaryData::toggle_brass_strip_200px_4f_png, BinaryData::toggle_brass_strip_200px_4f_pngSize);
+    const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
+                                          BinaryData::toggle_brass_v2_strip_40px_4f_pngSize);
+    const auto toggleStrip2x = loadImage (BinaryData::toggle_brass_v2_strip_80px_4f_png,
+                                          BinaryData::toggle_brass_v2_strip_80px_4f_pngSize);
 
     for (size_t i = 0; i < toggleLayout.size(); ++i)
     {
@@ -184,11 +188,6 @@ void SilentiumAudioProcessorEditor::configureKnob (Knob& knob, const juce::Strin
         const auto defaultValue = param->getNormalisableRange().convertFrom0to1 (param->getDefaultValue());
         knob.slider->setDoubleClickReturnValue (true, defaultValue);
     }
-
-    knob.label.setText (labelText, juce::dontSendNotification);
-    knob.label.setJustificationType (juce::Justification::centred);
-    knob.label.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (knob.label);
 
     // SliderAttachment MUST be constructed before the textFromValueFunction
     // override below, not after: JUCE 8.0.14's SliderParameterAttachment
@@ -227,11 +226,6 @@ void SilentiumAudioProcessorEditor::configureToggle (Toggle& toggle, const juce:
     toggle.button->setName (labelText);
     addAndMakeVisible (*toggle.button);
 
-    toggle.label.setText (labelText, juce::dontSendNotification);
-    toggle.label.setJustificationType (juce::Justification::centredLeft);
-    toggle.label.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (toggle.label);
-
     toggle.attachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, parameterId, *toggle.button);
 }
 
@@ -268,6 +262,18 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillAll (juce::Colours::black);
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
+
+    // v0.3.1: the top strip is an integrated dark header band (matching the
+    // near-black plate) with a thin warm gold rule under it, not raw black
+    // behind floating default-grey buttons - the preset bar's brass buttons
+    // and the recessed name display (BasilicaLookAndFeel) sit on this band.
+    const auto stripHeight = (float) topStripHeight1x * scale;
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff17141a), 0.0f, 0.0f,
+                                             juce::Colour (0xff0b090d), 0.0f, stripHeight, false));
+    g.fillRect (juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), stripHeight));
+    g.setColour (juce::Colour (0xff5a4420));
+    g.fillRect (juce::Rectangle<float> (0.0f, stripHeight - 1.0f * scale, (float) getWidth(), 1.0f * scale));
+
     const auto plateBounds = juce::Rectangle<float> (0.0f, (float) topStripHeight1x * scale + (float) topStripGap1x * scale,
                                                       (float) plateWidth1x * scale, (float) plateHeight1x * scale);
 
@@ -293,8 +299,8 @@ void SilentiumAudioProcessorEditor::resized()
     auto bounds = getLocalBounds();
     auto topStrip = bounds.removeFromTop (s (topStripHeight1x));
 
-    scaleButton.setBounds (topStrip.removeFromRight (s (scaleButtonWidth1x)));
-    presetBar.setBounds (topStrip);
+    scaleButton.setBounds (topStrip.removeFromRight (s (scaleButtonWidth1x)).reduced (0, s (2)));
+    presetBar.setBounds (topStrip.reduced (0, s (2)));
 
     // Everything below is expressed in plate-local coordinates (the base
     // @1x table above), then offset by the top strip + gap and scaled.
@@ -306,12 +312,10 @@ void SilentiumAudioProcessorEditor::resized()
                                      s (plateLocal.getHeight()));
     };
 
-    titleLabel.setBounds (toPlateRect (headerBay1x.withWidth (roundelCentre1x.x - headerBay1x.getX() - roundelRadius1x - 8)));
-
-    // The VU layers' dial content only occupies the central half of their
-    // canvas (see AnalogMeter::contentFractionOfCanvas) - expand each
-    // meter's bounds around its bay's centre so the VISIBLE dial fills the
-    // engraved bay. The overhang is fully transparent and mouse-transparent.
+    // The vu-dome layers' visible bezel spans contentFractionOfCanvas (95%)
+    // of their canvas - expand each meter's bounds around its bay's centre
+    // so the VISIBLE dial fills the engraved seat exactly. The thin overhang
+    // is fully transparent and mouse-transparent.
     const auto expandMeterBounds = [] (juce::Rectangle<int> bay)
     {
         const auto factor = 1.0f / basilica::gui::AnalogMeter::contentFractionOfCanvas;
@@ -334,24 +338,28 @@ void SilentiumAudioProcessorEditor::resized()
         const auto cellX = controlBay.getX() + entry.col * cellW;
         const auto cellY = controlBay.getY() + entry.row * cellH;
 
-        knobs[i].label.setBounds (cellX, cellY, cellW, labelH);
+        // The top labelH of each cell belongs to the ENGRAVED label baked
+        // into the faceplate art (see PluginEditorLayout.h's contract with
+        // the Blender script) - the knob is centred in the remaining space,
+        // exactly as when the labels were still juce::Labels, so the plate
+        // art keeps lining up.
         knobs[i].slider->setBounds (juce::Rectangle<int> (knobDiam, knobDiam)
                                         .withCentre ({ cellX + cellW / 2, cellY + labelH + (cellH - labelH) / 2 }));
     }
 
     const auto auxBay = toPlateRect (auxBay1x);
-    const auto toggleSize = juce::jmin (auxBay.getHeight() - s (4), s (34));
+    const auto toggleSize = s (toggleSize1x);
     const auto togglePairWidth = auxBay.getWidth() / (int) toggleLayout.size();
 
     for (size_t i = 0; i < toggleLayout.size(); ++i)
     {
         const auto pairX = auxBay.getX() + (int) i * togglePairWidth;
-        const auto toggleBounds = juce::Rectangle<int> (toggleSize, toggleSize)
-                                       .withCentre ({ pairX + toggleSize, auxBay.getCentreY() });
 
-        toggles[i].button->setBounds (toggleBounds);
-        toggles[i].label.setBounds (toggleBounds.getRight() + s (6), toggleBounds.getY(),
-                                    togglePairWidth - toggleSize - s (12), toggleSize);
+        // Toggle centred at pairX + toggleSize1x, matching the engraved
+        // DUCK/LISTEN labels' positions on the plate (which sit just right
+        // of each housing - see render_faceplate_silentium_v2.py).
+        toggles[i].button->setBounds (juce::Rectangle<int> (toggleSize, toggleSize)
+                                          .withCentre ({ pairX + toggleSize, auxBay.getCentreY() }));
     }
 }
 
