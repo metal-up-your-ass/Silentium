@@ -1,7 +1,6 @@
 #include "PluginEditor.h"
 #include "PluginEditorLayout.h"
 #include "PluginProcessor.h"
-#include "gui/ImageDensity.h"
 #include "params/ParameterIds.h"
 #include "presets/Localisation.h"
 
@@ -111,10 +110,6 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
 {
     setLookAndFeel (&lookAndFeel);
 
-    facePlateImage1x = loadImage (BinaryData::faceplate_silentium_v2_900x600_png,
-                                  BinaryData::faceplate_silentium_v2_900x600_pngSize);
-    facePlateImage2x = loadImage (BinaryData::faceplate_silentium_v2_1800x1200_png,
-                                  BinaryData::faceplate_silentium_v2_1800x1200_pngSize);
     brandIconImage = loadImage (BinaryData::icon256_png, BinaryData::icon256_pngSize);
 
     // Creation order below doubles as the accessibility/keyboard focus
@@ -140,6 +135,13 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     addAndMakeVisible (gainReductionMeter);
     addAndMakeVisible (inputLevelMeter);
 
+    // v0.3.2: drop-shadow so the meter housings read as sitting on the
+    // glossy plate rather than pasted flat onto it - see
+    // controlShadowEffect's docs (PluginEditor.h) and applyScaleStep() for
+    // the actual shadow parameters (scale-dependent, set there).
+    gainReductionMeter.setComponentEffect (&controlShadowEffect);
+    inputLevelMeter.setComponentEffect (&controlShadowEffect);
+
     const auto knobStrip1x = loadImage (BinaryData::knob_brass_v2_strip_160px_128f_png,
                                         BinaryData::knob_brass_v2_strip_160px_128f_pngSize);
     const auto knobStrip2x = loadImage (BinaryData::knob_brass_v2_strip_320px_128f_png,
@@ -150,6 +152,7 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
         auto& entry = knobLayout[i];
         knobs[i].slider = std::make_unique<basilica::gui::FilmstripKnob> (knobStrip1x, knobStrip2x, 128);
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
+        knobs[i].slider->setComponentEffect (&controlShadowEffect);
     }
 
     const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
@@ -254,6 +257,19 @@ void SilentiumAudioProcessorEditor::applyScaleStep (int newStepIndex)
     scaleButton.setTitle ("Window scale, " + percentText);
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
+
+    // v0.3.2: (re)configure the shared meter/knob drop-shadow for the
+    // current scale step - offset (~2, ~4 px @1x) and radius (~10 px @1x)
+    // per Yves' brief, scaled so the shadow doesn't shrink to invisibility
+    // at 150%/200%. Runs here (not just once at construction) because this
+    // is the single place scale changes take effect, and setShadowProperties()
+    // updates the ONE shared controlShadowEffect instance every meter/knob
+    // already points at via setComponentEffect() - no per-component re-wiring
+    // needed.
+    controlShadowEffect.setShadowProperties (juce::DropShadow (juce::Colours::black.withAlpha (0.45f),
+                                                                (int) std::lround (10.0f * scale),
+                                                                { (int) std::lround (2.0f * scale), (int) std::lround (4.0f * scale) }));
+
     setSize ((int) std::lround ((float) baseEditorWidth * scale),
              (int) std::lround ((float) baseEditorHeight * scale));
 }
@@ -278,10 +294,69 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     const auto plateBounds = juce::Rectangle<float> (0.0f, (float) topStripHeight1x * scale + (float) topStripGap1x * scale,
                                                       (float) plateWidth1x * scale, (float) plateHeight1x * scale);
 
-    const auto& plateImage = basilica::gui::pickImageForWidth (facePlateImage1x, facePlateImage2x,
-                                                               plateWidth1x, (int) plateBounds.getWidth());
-    if (plateImage.isValid())
-        g.drawImage (plateImage, plateBounds);
+    // v0.3.2: JUCE-drawn glossy-black plate, replacing the pre-rendered
+    // faceplate_silentium_v2 photoreal PNG - Yves' verdict was that the
+    // nano-banana render looked wrong, and this vector gloss reads better
+    // with the VU meters/knobs as the sole focal points. Styled after
+    // brand/mock-raytrace-1-frontal.png's three physical-object cues: a
+    // vertical base gradient with a warm rim at the very top, a broad soft
+    // upper-left studio-softbox reflection, and a hairline bright bevel
+    // tracing the rounded outline. The meters/knobs get their own
+    // drop-shadow via controlShadowEffect (see the constructor/
+    // applyScaleStep()) rather than anything painted here.
+    const auto cornerRadius = 20.0f * scale;
+    juce::Path platePath;
+    platePath.addRoundedRectangle (plateBounds, cornerRadius);
+
+    // Base vertical gradient: warm rim highlight confined to the top ~15%
+    // of the plate, near-black base for the rest (ColourGradient clamps to
+    // colour2 past its end point, so nothing further needs doing below the
+    // 15% mark).
+    juce::ColourGradient plateGradient (juce::Colour::fromRGB (28, 26, 24),
+                                        plateBounds.getX(), plateBounds.getY(),
+                                        juce::Colour::fromRGB (12, 12, 14),
+                                        plateBounds.getX(), plateBounds.getY() + plateBounds.getHeight() * 0.15f,
+                                        false);
+    g.setGradientFill (plateGradient);
+    g.fillPath (platePath);
+
+    {
+        // Broad, soft, DIAGONAL reflection in the upper-left quadrant (not a
+        // subtle vignette - a real bright zone that reads as gloss, per
+        // Yves' reference mock). Implemented by drawing a circular radial
+        // gradient through a non-uniform scale+rotate transform, so its true
+        // shape in device space is a flattened, tilted ellipse. Clipped to
+        // the plate's own rounded-rect path first so the transformed fill
+        // can never spill past the plate edge.
+        juce::Graphics::ScopedSaveState reflectionSave (g);
+        g.reduceClipRegion (platePath);
+
+        const auto reflectionCentreX = plateBounds.getX() + plateBounds.getWidth() * 0.24f;
+        const auto reflectionCentreY = plateBounds.getY() + plateBounds.getHeight() * 0.26f;
+        const auto reflectionRadius = plateBounds.getWidth() * 0.36f; // ~30-40% of plate width
+
+        g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi * -0.16f,
+                                                          reflectionCentreX, reflectionCentreY)
+                            .scaled (1.8f, 0.5f, reflectionCentreX, reflectionCentreY));
+
+        juce::ColourGradient reflectionGradient (juce::Colour::fromRGB (255, 244, 224).withAlpha (0.20f),
+                                                  reflectionCentreX, reflectionCentreY,
+                                                  juce::Colours::transparentBlack,
+                                                  reflectionCentreX + reflectionRadius, reflectionCentreY,
+                                                  true);
+        g.setGradientFill (reflectionGradient);
+
+        // Filled rect is generously oversized (relative to the now-tilted/
+        // scaled coordinate space) so the visible, clip-bounded area is
+        // fully covered regardless of the transform above.
+        g.fillRect (plateBounds.expanded (plateBounds.getWidth(), plateBounds.getHeight()));
+    }
+
+    // Hairline outer bevel: a thin bright warm-white line tracing the
+    // plate's rounded outline, catching light like a real polished edge -
+    // drawn last, unclipped, on top of the base gradient and reflection.
+    g.setColour (juce::Colour::fromRGB (238, 227, 203).withAlpha (0.40f));
+    g.strokePath (platePath, juce::PathStrokeType (juce::jmax (1.0f, 1.5f * scale)));
 
     if (brandIconImage.isValid())
     {

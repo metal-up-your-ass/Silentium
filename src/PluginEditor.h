@@ -14,19 +14,25 @@ class SilentiumAudioProcessor;
 
 // v0.3.1 visual overhaul editor: photoreal skeuomorphic UI built from the
 // reusable src/gui/ component family (FilmstripKnob, FilmstripToggle,
-// AnalogMeter, BasilicaLookAndFeel) plus the pre-rendered faceplate PNG (see
-// .scaffold/gui-assets/faceplate-silentium-v2/README.md). Every visible
-// control is wired to a real APVTS parameter or a real metering value - no
-// dead decoration, per the basilica-gui-design skill's binding spec.
+// AnalogMeter, BasilicaLookAndFeel). Every visible control is wired to a
+// real APVTS parameter or a real metering value - no dead decoration, per
+// the basilica-gui-design skill's binding spec.
+//
+// v0.3.2: the plate background switched from a pre-rendered photoreal PNG
+// (resources/gui/faceplate_silentium_v2_*.png, still bundled via BinaryData
+// but no longer loaded/drawn anywhere - Yves' call, left in place for manual
+// cleanup) to a JUCE-drawn glossy-black surface painted directly in paint()
+// - base gradient, a broad soft upper-left reflection, and a hairline outer
+// bevel, styled after brand/mock-raytrace-1-frontal.png. See paint()'s docs.
 //
 // TYPOGRAPHY / LABELS: since v0.3.1 every static caption (title, knob
-// labels, toggle labels) is ENGRAVED into the faceplate PNG itself (EB
+// labels, toggle labels) was ENGRAVED into the faceplate PNG itself (EB
 // Garamond, gold inlay, rendered by the Blender pipeline) - there are no
-// juce::Label captions in this editor any more. The controls' positions come
-// from the same slnt::layout table the plate art was authored against
-// (src/PluginEditorLayout.h documents that contract), so the baked labels
-// always line up with the live controls. Accessible names are unaffected:
-// every control still carries its parameter name via setTitle().
+// juce::Label captions in this editor. Since the v0.3.2 background swap
+// those baked captions are GONE (the plate art that carried them is no
+// longer drawn) - only the knob-grid/aux-bay geometry from the same
+// slnt::layout table remains. Accessible names are unaffected: every
+// control still carries its parameter name via setTitle().
 //
 // Window scaling is STEPPED (100/150/200%, a UA-style corner control next to
 // the preset bar, persisted as a plain property on the APVTS state tree) -
@@ -75,8 +81,16 @@ private:
 
     basilica::gui::BasilicaLookAndFeel lookAndFeel;
 
-    juce::Image facePlateImage1x, facePlateImage2x;
     juce::Image brandIconImage;
+
+    // v0.3.2: shared drop-shadow, applied via setComponentEffect() to every
+    // meter and knob so they read as objects sitting ON the glossy plate
+    // rather than pasted flat onto it (per brand/mock-raytrace-1-frontal.png
+    // - see the constructor and applyScaleStep()). One instance is shared
+    // across all of them since DropShadowEffect is stateless between
+    // applyEffect() calls and painting is always single-threaded on the
+    // message thread - not per-component state.
+    juce::DropShadowEffect controlShadowEffect;
 
     basilica::presets::PresetBar presetBar;
     juce::TextButton scaleButton;
