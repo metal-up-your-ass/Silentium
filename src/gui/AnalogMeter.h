@@ -5,13 +5,14 @@
 #include <atomic>
 
 // Suite-reusable analog-style meter: a static face + glass overlay
-// (pre-rendered Blender PNGs, see .scaffold/gui-assets/vu-brass-v1/README.md)
-// with a needle image rotated live via juce::AffineTransform around the
-// face's baked pivot rivet. The needle image is rendered once, at rest,
-// pointing at the face's lowest scale tick - JUCE only ever applies an
-// ADDITIONAL rotation delta on top of that baked rest orientation, so at the
-// lowest tick the needle draws with zero extra rotation and lands exactly on
-// the rivet mark the asset was authored against.
+// (pre-rendered Blender PNGs - since v0.3.1 the circular glass-dome family,
+// see .scaffold/gui-assets/vu-dome-v1/README.md) with a needle image rotated
+// live via juce::AffineTransform around the face's baked pivot rivet. The
+// needle image is rendered once, at rest, pointing at the face's lowest
+// scale tick - JUCE only ever applies an ADDITIONAL rotation delta on top of
+// that baked rest orientation, so at the lowest tick the needle draws with
+// zero extra rotation and lands exactly on the rivet mark the asset was
+// authored against.
 namespace basilica::gui
 {
     class AnalogMeter : public juce::Component, private juce::Timer
@@ -51,17 +52,18 @@ namespace basilica::gui
         // beyond the table's ends. Exposed for unit testing.
         static float tickAngleDegreesForDb (float db) noexcept;
 
-        // vu-brass-v1's dial content (the cream face plane) occupies exactly
-        // the CENTRAL HALF of the rendered canvas in both axes - the plane
-        // is 1.6x0.9 world units on a 3.2x1.8 canvas (render_vu_meter.py's
-        // build_face()/build_glass() plane scale vs ortho_scale 3.2) - with
-        // fully transparent margins around it. A layout that wants the
-        // visible dial to fill a given rectangle must therefore size this
-        // component 1/contentFractionOfCanvas (= 2x) larger than that
-        // rectangle, centred on it (the margins are transparent and this
-        // component never intercepts mouse events, so the overhang is
-        // harmless). See SilentiumAudioProcessorEditor::resized().
-        static constexpr float contentFractionOfCanvas = 0.5f;
+        // vu-dome-v1's visible content (bezel outer edge) spans 95% of the
+        // rendered canvas (render_vu_dome_v1.py's BEZEL_OUTER_R = 0.95 under
+        // ortho_scale 2.0), with a thin fully transparent margin around it.
+        // A layout that wants the visible dial to fill a given rectangle
+        // must size this component 1/contentFractionOfCanvas larger than
+        // that rectangle, centred on it (the margin is transparent and this
+        // component never intercepts mouse events, so the tiny overhang is
+        // harmless). See SilentiumAudioProcessorEditor::resized(). v0.3.1:
+        // was 0.5 for vu-brass-v1, whose dial only filled the central half
+        // of its canvas - the ~2x runtime upscale that implied was a direct
+        // cause of the rejected "unscharf" meter rendering.
+        static constexpr float contentFractionOfCanvas = 0.95f;
 
     private:
         // A-07 fix (M3 a11y review): read-only accessibility value
@@ -86,19 +88,14 @@ namespace basilica::gui
         float smoothedDb = -100.0f;
 
         // Needle pivot as a fraction of the layer canvas, derived from
-        // render_vu_meter.py's own scene: PIVOT world (0, -0.40) on a canvas
-        // spanning world y [-0.9, 0.9] under the orthographic camera ->
-        // fraction from the top = (0.9 + 0.40) / 1.8 = 13/18. VERIFIED
-        // against the shipped pixels (ImageMagick alpha bounding box of
-        // vu_brass_needle_480x270.png: 77x62+170+140, whose hub-disc centre
-        // - hub radius 7.5px at this canvas size - lands at ~(239.5, 194.5),
-        // i.e. fractions (0.499, 0.720)). NOTE: this deliberately does NOT
-        // use vu-brass-v1/README.md's stated "pixel (0.5w, 0.86h)" - that
-        // value does not match either the generator script's math or the
-        // actual rendered pixels and appears to be an error in the README
-        // (flagged in docs/gui-components.md for an upstream fix).
+        // render_vu_dome_v1.py's own scene: PIVOT world (0, -0.42) on a
+        // square canvas spanning world y [-1, 1] (ortho_scale 2.0) ->
+        // fraction from the top = (1 + 0.42) / 2 = 0.71. The needle layer
+        // is rendered at rest pointing at the lowest tick (-20 dB / -50deg);
+        // JUCE only ever applies an ADDITIONAL rotation delta on top of
+        // that baked rest orientation, around this pivot point.
         static constexpr float pivotXFraction = 0.5f;
-        static constexpr float pivotYFraction = 13.0f / 18.0f;
+        static constexpr float pivotYFraction = 0.71f;
 
         static constexpr double timerHz = 30.0;
         static constexpr float ballisticsTauSeconds = 0.3f;

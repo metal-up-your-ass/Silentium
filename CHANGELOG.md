@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-18
+
+### Changed
+
+- **Full visual overhaul (v2 asset pass)** - the v0.3.0 GUI's assets were rejected in design review (soft meters, cheap-looking knob material, floating unhoused toggles, gray label chips, raw-JUCE preset bar). Every asset family is re-rendered from a mock-graded Blender pipeline, iterated against the approved "Raytrace-Basilica" mocks through three proof-sheet review rounds before production:
+  - **Faceplate v2**: glossy near-black plate (mock-calibrated: measured mean luminance ~28 vs the mock plate's 15-47 range) with anisotropic brushed micro-texture, a fine gold pinstripe edge frame, and ALL captions (title nameplate, 9 knob labels, DUCK/LISTEN) ENGRAVED into the plate as EB Garamond gold-inlay lettering - the interim JUCE-drawn label chips are gone entirely.
+  - **Circular glass-dome VU meters** (vu-dome-v1): round near-black bezels with a gold accent ring, warm amber-backlit dials (classic ~93° arc, 0 dB right-of-centre, solid red overload band), EB Garamond numerals and centre "VU" wordmark, substantial hub needle, and genuinely curved glass streak reflections. Rendered at the meter bay's exact pixel size - the v0.3.0 meters' ~2x runtime upscale (the "soft meter" root cause) is eliminated, and the @1x/@2x tier switch now never upscales (ImageDensity margin 1.25 -> 1.0).
+  - **Knob filmstrip v2**: circular-anisotropic brushed brass with lacquer coat and edge wear, deeper/warmer gold, finer knurl pitch (128 ridges), and a wide engraved gold-inlay pointer readable at 100% scale. The v1 strip's baked shadow-catcher wash (the gray square behind every knob) is gone - v2 frames have verified fully transparent backgrounds.
+  - **Toggle v2**: a complete housed switch (boolean-cut brass frame around a recessed slot, brass lever, state lamp) at 40px/80px tiers, replacing the tiny unhoused levers.
+  - **Preset bar reskin** (suite-shared `src/presets/PresetBar` + `BasilicaLookAndFeel`): brass-rimmed 3-slice button caps with a baked near-black face panel (normal/hover baked states + runtime pressed darken; the dark face exists because - measured - no ink colour on bare midtone brass can clear WCAG's 4.5:1), warm-gold button lettering, the preset name in a recessed dark display window (componentID-selected draw path), and a dark header band with a gold hairline rule in the editor - no more raw default-grey toolbar.
+  - **Typography system**: EB Garamond (OFL, embedded via BinaryData) for every JUCE-drawn text surface, matching the engraved plate lettering; chosen over Cormorant Garamond in a 12-14px legibility comparison.
+- `AnalogMeter`: new ~93° tick table (matching the vu-dome-v1 face art), pivot fractions (0.5, 0.71), and `contentFractionOfCanvas` 0.95 (was 0.5). Layout table (`PluginEditorLayout.h`) re-authored for the circular meter bays; layout-invariant and tick-angle tests updated with it.
+- **Accessibility preserved**: engraved labels replace visual `juce::Label`s only - every control keeps its accessible title/name, keyboard operability, focus rings (now also drawn on the brass preset-bar buttons), the dynamic scale-button title, and the meter value interfaces. A new WCAG contrast test covers the preset-bar button text against the button face's brightest tone.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

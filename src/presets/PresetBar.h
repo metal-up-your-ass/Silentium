@@ -9,13 +9,15 @@
 // to sibling plugins - see docs/preset-system-notes.md for the exact
 // replication recipe.
 //
-// Deliberately plain: a horizontal strip
-// "[<] [PresetName*] [>] [Save] [Save As...] [Delete] [Import...]
-// [Export...]" using stock juce::TextButton/PopupMenu/AlertWindow/
-// FileChooser, matching the rest of this plugin's v0.1/v0.2 functional-but-
-// unstyled editor. M3 (GUI & a11y milestone) restyles this; M2's job is
-// correct, fully-wired behaviour, not visual polish - per the spec's own
-// "do not gold-plate" note.
+// A horizontal strip "[<] [PresetName*] [>] [Save] [Save As...] [Delete]
+// [Import...] [Export...]" built from stock juce::TextButton/PopupMenu/
+// AlertWindow/FileChooser. Since the v0.3.1 visual overhaul the styling
+// comes entirely from BasilicaLookAndFeel (brass 3-slice button caps, the
+// preset name in a recessed dark display window selected via this
+// component's "presetNameDisplay" componentID, EB Garamond type) - this
+// class deliberately contains NO drawing code of its own, so the reskin
+// propagates to every sibling plugin that copies the suite-shared
+// src/presets/ + src/gui/ family verbatim.
 namespace basilica::presets
 {
     class PresetBar : public juce::Component, private juce::Timer

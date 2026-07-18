@@ -15,6 +15,13 @@ namespace basilica::presets
         previousButton.onClick = [this] { manager.previousPreset(); refreshFromManager(); };
         addAndMakeVisible (previousButton);
 
+        // v0.3.1 reskin: componentID selects BasilicaLookAndFeel's recessed
+        // dark display-window draw path for this button (warm gold preset
+        // name in an engraved nameplate window) instead of the brass button
+        // cap - pure styling, all Button semantics (click-to-open-menu,
+        // keyboard access, accessible title) unchanged. Editors without that
+        // LookAndFeel simply render it as a normal TextButton.
+        nameButton.setComponentID ("presetNameDisplay");
         nameButton.onClick = [this] { showPresetMenu(); };
         addAndMakeVisible (nameButton);
 
