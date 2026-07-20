@@ -10,23 +10,29 @@
 // lays components out with, instead of a second hand-copied set of
 // constants that could silently drift out of sync.
 //
-// v0.3.3 (this revision): TRUE COMPONENT ASSEMBLY, per Yves' final art
-// direction - the bare baseline plate is
-// .scaffold/gui-assets/faceplate-silentium-v3/master-04-empty.png
-// ("master-04" generation, 1264x848), with every control/decoration
-// composited as its own standalone master-reference asset on top (see
-// PluginEditor.cpp's docs) rather than one single baked master render.
-// Every constant below was measured DIRECTLY against master-04-empty.png
-// (NOT copied from the older faceplate-metadata.json, which was measured
-// against the PRIOR "master-03" render generation and does not match this
-// one - master-04 uses noticeably different dial/knob proportions and
-// spacing) - see this revision's PR/handoff notes for the measurement
-// methodology (a mix of colour-threshold blob centroids, an algebraic
-// circle fit, and direct visual pixel-grid readings, cross-checked against
-// each other via a full Python/PIL composite preview before being ported to
-// this file). Every constant is this master's own pixel geometry scaled by
+// v0.3.4 (this revision): MASTER-05 BASELINE ARCHITECTURE, per Yves' final
+// art direction - a full replacement of the three prior "component
+// composition" attempts (v0.3.1's bare JUCE-drawn background, v0.3.2's
+// single-master faceplate, v0.3.3's true component assembly). master-05.png
+// (.scaffold/gui-assets/faceplate-silentium-v3/master-05.png, 1264x848) is
+// now the SOLE baked faceplate: obsidian plate, brass bevel, 4 corner
+// screws, rose flourish, both VU dial faces at rest (empty - no needle, no
+// LED), all 9 knobs at 12 o'clock, the 2 toggles UP/on, and both tube-vent
+// grilles at their normal (mid-intensity) glow are ALL part of this one
+// image. Every constant below was re-measured DIRECTLY against master-05.png
+// by .scaffold/gui-assets/faceplate-silentium-v3/analysis/measure_master_05.py
+// (HoughCircles for the VU bezels/knobs/screws, HSV colour-threshold blob
+// detection for the toggles/rose/vents - see that script's own docs for the
+// exact technique per element family, and analysis/master_05_measurements.json
+// for its raw output) - NOT copied from the master-04 table this file
+// previously held (a different render generation; master-04 was a
+// deliberately BARE plate for the now-abandoned "true component assembly"
+// approach, so its measurements do not apply here even though the overall
+// plate geometry is otherwise unchanged from master-03 onward, per Yves).
+// Every constant is this master's own pixel geometry scaled by
 // plateWidth1x / masterCanvasWidthPx down to this @1x table - re-derive all
-// of them together if the master render is ever replaced.
+// of them together (by re-running measure_master_05.py) if the master
+// render is ever replaced.
 namespace slnt::layout
 {
     // juce::Rectangle/Point's constructors are not constexpr (JUCE 8.0.14),
@@ -43,73 +49,95 @@ namespace slnt::layout
     constexpr int plateWidth1x = 900;
     constexpr int plateHeight1x = 604; // masterCanvasHeightPx scaled by the same factor as plateWidth1x
 
-    // Each AnalogMeter's component bounds are the exact box the dial FACE
-    // asset (vu-face-v4.png) is drawn into, scaled/positioned so the face's
-    // own outer bezel lands on the plate's dial void (measured: bezel
-    // centre (410,252)/(854,252) master px, diameter 248 master px; the
-    // face asset's own bezel occupies ~88.4% of its 1024x1024 canvas,
-    // canvas-centred - see PluginEditor.cpp's makeMeterAssets() docs for the
-    // exact fit maths). The needle/glow/LED pivot is NOT the box centre
-    // (unlike v0.3.2's pivot-centred convention) - see meterPivotXFraction/
-    // meterPivotYFraction below, matched to the face asset's own measured
-    // hub position.
-    constexpr int meterComponentSize1x = 200;
-    const juce::Point<int> meterLTopLeft1x { 191, 78 };
-    const juce::Point<int> meterRTopLeft1x { 507, 78 };
-    constexpr float meterPivotXFraction = 0.5f;
-    constexpr float meterPivotYFraction = 0.630f;
+    // Each AnalogMeter's component bounds are sized/positioned so the
+    // needle/glow/LED overlay lands correctly on master-05's own BAKED dial
+    // face - AnalogMeter no longer draws a face image of its own (see
+    // AnalogMeter.h's v0.3.4 docs), so this box is purely a coordinate frame
+    // for the overlay elements, not "the box a face asset is drawn into" as
+    // in prior revisions. Measured: outer brass-bezel bounding box, master
+    // px centre (321.0, 292.5)/(942.0, 292.0), diameter ~358px (mean of the
+    // two meters' independently-measured diameters, which agree to within
+    // 0.5px). meterPivotXFraction/meterPivotYFraction locate the needle-
+    // pivot hub (the hex hub on the anchor bar) as a fraction of this box -
+    // measured directly (HoughCircles on the right meter's own face bbox,
+    // cross-checked by eye against the source render) rather than assumed;
+    // both meters share this single fraction pair (mirrored-duplicate dial
+    // design).
+    constexpr int meterComponentSize1x = 255;
+    const juce::Point<int> meterLTopLeft1x { 101, 81 };
+    const juce::Point<int> meterRTopLeft1x { 543, 81 };
+    constexpr float meterPivotXFraction = 0.478f;
+    constexpr float meterPivotYFraction = 0.666f;
 
     // Control-bay knobs: a STAGGERED/brick layout baked into the master
     // render (row 2 sits offset right of row 1, not a straight 5-col/2-row
     // grid) - explicit per-knob centres rather than derived grid cells.
     // Row order/count matches PluginEditor.cpp's knobLayout table (row 1:
     // Threshold, Attack, Hold, Release, Range; row 2: Lookahead, SC HPF,
-    // SC LPF, Knee).
-    constexpr int knobRow1Y1x = 338;
-    constexpr int knobRow2Y1x = 427;
-    constexpr int knobDiameter1x = 71;
+    // SC LPF, Knee). All 9 knobs are BAKED into master-05 at their 12
+    // o'clock rest pose - these centres now position a transparent,
+    // undecorated juce::Slider overlay (mouse + APVTS only, see
+    // PluginEditor.cpp's Knob struct) rather than a rotating image.
+    constexpr int knobRow1Y1x = 381;
+    constexpr int knobRow2Y1x = 456;
+    constexpr int knobDiameter1x = 48;
 
-    constexpr std::array<int, 5> knobRow1X1x { 267, 356, 445, 534, 623 };
-    constexpr std::array<int, 4> knobRow2X1x { 310, 399, 488, 577 };
+    constexpr std::array<int, 5> knobRow1X1x { 270, 360, 449, 539, 628 };
+    constexpr std::array<int, 4> knobRow2X1x { 316, 405, 494, 584 };
 
-    // Two footer toggles (Duck, Listen), same Y, explicit X centres. Drawn
-    // by the older FilmstripToggle component (toggle_brass_v2_strip_*.png)
-    // - see PluginEditor.cpp's docs for why this element, alone, was NOT
-    // ported to a fresh master-ref asset in this revision (no master-ref
-    // toggle render exists yet).
-    constexpr int toggleY1x = 502;
-    constexpr int toggleSize1x = 39;
-    constexpr std::array<int, 2> toggleX1x { 404, 475 };
+    // Two footer toggles (Duck, Listen), same Y, explicit X centres - both
+    // baked into master-05 in the UP/on position. toggleZoneSize1x is the
+    // (deliberately generous) square crop PluginEditor.cpp blits from
+    // master-06.png over master-05.png when a toggle is OFF (see that
+    // file's paint() docs) - sized well beyond toggleSize1x (the toggle
+    // body's own measured diameter) so the full lever-pivot arc is covered
+    // with no visible seam; harmless to oversize since master-05/master-06
+    // are pixel-identical everywhere outside the toggle mechanism itself.
+    constexpr int toggleY1x = 514;
+    constexpr int toggleSize1x = 32;
+    constexpr int toggleZoneSize1x = 56;
+    constexpr std::array<int, 2> toggleX1x { 405, 494 };
 
-    // Rose emblem (rose-emblem-v4.png), centred in the gap between the two
-    // dials.
-    const juce::Point<int> roseCentre1x { 450, 171 };
-    constexpr int roseDiameter1x = 107;
-    constexpr float roseContentDiameterFraction = 684.0f / 1024.0f;
+    // Rose flourish ornament - BAKED into master-05, no draw call (unlike
+    // the master-04 generation's separate rose-emblem-v4.png overlay). Kept
+    // here (same names as before) purely so
+    // tests/gui/EditorLayoutTests.cpp's containment assertions keep
+    // compiling against a real measurement; master-05's ornament is a thin
+    // horizontal flourish line rather than the older circular/squircle
+    // medallion, so roseDiameter1x is its bounding box's larger (width)
+    // extent, not a true circle diameter.
+    const juce::Point<int> roseCentre1x { 451, 323 };
+    constexpr int roseDiameter1x = 150;
 
-    // Four corner screws (screw-v4.png).
+    // Four corner screws - BAKED into master-05, no draw call. Kept for the
+    // same reason as roseCentre1x/roseDiameter1x above.
     const std::array<juce::Point<int>, 4> screwCentres1x {
-        juce::Point<int> { 84, 83 },  // top-left
-        juce::Point<int> { 834, 83 }, // top-right
-        juce::Point<int> { 84, 520 }, // bottom-left
-        juce::Point<int> { 835, 513 } // bottom-right
+        juce::Point<int> { 76, 77 },  // top-left
+        juce::Point<int> { 815, 83 }, // top-right
+        juce::Point<int> { 77, 525 }, // bottom-left
+        juce::Point<int> { 820, 527 } // bottom-right
     };
-    constexpr int screwDiameter1x = 31;
-    constexpr float screwContentDiameterFraction = 132.0f / 1024.0f;
+    constexpr int screwDiameter1x = 21;
 
-    // Tube-vent glow banks: two independently-flickering tube-glow
-    // instances per side (Yves' brief: "2 independent noise sources per
-    // meter"), composited BEHIND the vent grille art that's already baked
-    // into master-04-empty.png (see PluginEditor.cpp's docs for why the
-    // separate vent-empty-master-ref.png overlay was deliberately NOT
-    // re-composited on top - redundant/misalignment-risk against the
-    // already-present baked grille). Positions are the two tube slots in
-    // the baked grille that already show glass/glow detail.
-    const juce::Point<int> ventLBankCentre1x { 142, 385 };
-    const juce::Point<int> ventRBankCentre1x { 758, 385 };
-    constexpr int tubeGlowInstanceXOffset1x = 11; // +/- from the bank centre, the two tube slots
-    constexpr int tubeGlowDrawWidth1x = 32;
-    constexpr int tubeGlowDrawHeight1x = 150;
+    // Tube-vent glow banks: unlike the master-04 generation (4 independently
+    // flickering discrete tube-glow instances composited via a separate
+    // tube-glow-v4.png asset), master-05 bakes the vent grille AND its
+    // normal-intensity glow directly into the plate. The only remaining
+    // dynamic behaviour is a SUBTLE, signal-driven cross-blend of this
+    // WHOLE region between master-glow-dim.png (low signal) and master-05
+    // itself (the approved baseline "normal" glow, t=1 - see
+    // PluginEditor.cpp's paint() docs for the hard ceiling this cross-blend
+    // must never exceed). Bounds measured directly (brightness-threshold
+    // blob detection unioning the 6 individual slat bounding boxes) on the
+    // RIGHT bank; the LEFT bank's bounds are the RIGHT bank's own box
+    // mirrored across the plate's horizontal centre, because a direct
+    // threshold on the left half is defeated by the diagonal softbox-
+    // reflection sheen baked into that side of the render (see
+    // measure_master_05.py's docs) - the two banks are a mirrored asset
+    // pair by construction, so this is a measurement of the same geometry,
+    // not an approximation of a different one.
+    const juce::Rectangle<int> ventLBankBounds1x { 106, 355, 214 - 106, 487 - 355 };
+    const juce::Rectangle<int> ventRBankBounds1x { 686, 355, 794 - 686, 487 - 355 };
 
     constexpr int topStripHeight1x = 32;
     constexpr int topStripGap1x = 6;

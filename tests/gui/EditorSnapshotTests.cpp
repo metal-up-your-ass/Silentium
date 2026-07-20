@@ -1,16 +1,15 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "gui/AnalogMeter.h"
-#include "gui/RotatingImageKnob.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-// GUI smoke tests for the photoreal editor (src/PluginEditor.h, src/gui/).
-// juce::ScopedJuceInitialiser_GUI is installed once for the whole test
-// binary in tests/TestMain.cpp, so Components/Timers are safe to construct
-// here even though this is a headless console executable with no running
-// message loop (timers simply never fire, which is fine - these tests only
-// exercise synchronous construction/paint/destruction).
+// GUI smoke tests for the master-05 baseline editor (src/PluginEditor.h,
+// src/gui/). juce::ScopedJuceInitialiser_GUI is installed once for the
+// whole test binary in tests/TestMain.cpp, so Components/Timers are safe to
+// construct here even though this is a headless console executable with no
+// running message loop (timers simply never fire, which is fine - these
+// tests only exercise synchronous construction/paint/destruction).
 TEST_CASE ("Editor constructs, lays out, and destroys cleanly", "[gui]")
 {
     SilentiumAudioProcessor processor;
@@ -48,19 +47,26 @@ namespace
     }
 
     // Configures a deliberately "alive-looking" state before snapshotting -
-    // Yves' explicit request (v0.3.3 component-assembly revision's brief):
-    // the two VU needles at different, non-zero positions (showing dynamic
-    // range rather than both resting at the same spot), the right meter's
-    // peak LED lit, and the knob grid at varied positions rather than every
-    // control sitting at a uniform 12 o'clock rest pose.
+    // Yves' explicit request for the master-05 baseline revision: Duck OFF
+    // (exercises the master-06 toggle-zone crop-swap overlay), Listen ON
+    // (stays at master-05's own baked UP artwork), the two VU needles at
+    // different, non-zero positions with the Input meter's peak LED lit,
+    // the vent-glow mix partway between master-glow-dim and master-05's own
+    // ceiling, and the knob grid at varied positions rather than every
+    // control sitting at a uniform 12 o'clock rest pose (the knobs
+    // themselves never visibly rotate - see PluginEditor.h's docs - but
+    // exercising real, varied APVTS values here is still worthwhile: it's
+    // what the accessible value-popup text and the SliderAttachment wiring
+    // actually reflect).
     //
     // AnalogMeter::setTargetDb() + this component's own ~300ms ballistic
-    // ramp would need real timer ticks pumped through a running message
-    // loop to actually reach these values - this headless test binary has
-    // no such loop (see the top-of-file docs), so
-    // setImmediateDbForPreview() (test/preview-only, see AnalogMeter.h's
-    // docs) seeds the ballistic-smoothed reading AND the peak-LED state
-    // directly instead.
+    // ramp, and the editor's own timerCallback()-driven vent-glow ballistics,
+    // would need real timer ticks pumped through a running message loop to
+    // actually reach these values - this headless test binary has no such
+    // loop (see the top-of-file docs), so setImmediateDbForPreview() /
+    // setVentGlowMixForPreview() (test/preview-only, see AnalogMeter.h's and
+    // PluginEditor.h's docs) seed the ballistic-smoothed readings, the
+    // peak-LED state, and the vent-glow mix directly instead.
     void configureLiveLookingState (SilentiumAudioProcessorEditor& editor)
     {
         if (auto* gr = findChildByTitle<basilica::gui::AnalogMeter> (editor, "Gain Reduction meter"))
@@ -68,6 +74,14 @@ namespace
 
         if (auto* input = findChildByTitle<basilica::gui::AnalogMeter> (editor, "Input Level meter"))
             input->setImmediateDbForPreview (2.0f); // >= AnalogMeter::peakLedThresholdDb - lights the peak LED
+
+        if (auto* duck = findChildByTitle<juce::ToggleButton> (editor, "Duck"))
+            duck->setToggleState (false, juce::dontSendNotification); // OFF -> master-06 crop at this toggle
+
+        if (auto* listen = findChildByTitle<juce::ToggleButton> (editor, "Listen"))
+            listen->setToggleState (true, juce::dontSendNotification); // ON -> master-05's own baked UP artwork
+
+        editor.setVentGlowMixForPreview (0.6f); // between master-glow-dim and master-05's own ceiling
 
         struct KnobValue
         {
@@ -82,7 +96,7 @@ namespace
         };
 
         for (const auto& kv : knobValues)
-            if (auto* knob = findChildByTitle<basilica::gui::RotatingImageKnob> (editor, kv.label))
+            if (auto* knob = findChildByTitle<juce::Slider> (editor, kv.label))
                 knob->setValue (knob->proportionOfLengthToValue (kv.normalisedValue), juce::dontSendNotification);
     }
 }

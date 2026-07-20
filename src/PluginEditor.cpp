@@ -44,21 +44,31 @@ namespace
     {
         const char* parameterId;
         const char* labelText;
+        int centreX1x;
     };
 
     constexpr std::array<ToggleLayoutEntry, 2> toggleLayout {
-        ToggleLayoutEntry { ParamIDs::duck, "Duck" },
-        ToggleLayoutEntry { ParamIDs::listen, "Listen" },
+        ToggleLayoutEntry { ParamIDs::duck, "Duck", toggleX1x[0] },
+        ToggleLayoutEntry { ParamIDs::listen, "Listen", toggleX1x[1] },
     };
 
-    // Native content-diameter fractions for the master-ref assets this
-    // editor draws directly (not via AnalogMeter/RotatingImageKnob, which
-    // carry their own) - see CMakeLists.txt's asset-list comment for how
-    // each *-v4.png was derived from its *-master-ref.png source render.
-    // knob-v4.png's own disc content (the knurled brass disc, excluding its
-    // drop shadow) occupies this fraction of its 1024x1024 canvas, measured
-    // via the same bounding-box technique as the other v4 assets.
-    constexpr float knobContentDiameterFraction = 768.0f / 1024.0f;
+    // Vent-glow ballistics/flicker (mirrors AnalogMeter's own bulb-glow
+    // technique, see Flicker.h) - deliberately slower (150ms tau) than the
+    // meters' 300ms dial ballistics would suggest sped up, and a SUBTLE
+    // flicker amplitude within Yves' explicit +/-3-5% brief (never the
+    // wider swing AnalogMeter's dial glow uses).
+    constexpr float ventGlowTauSeconds = 0.15f;
+    constexpr float ventGlowFlickerAmplitude = 0.04f;
+
+    // Input-level range mapped to the vent-glow mix: below ventGlowFloorDb
+    // the tubes read as idling (mix 0, master-glow-dim.png), at/above
+    // ventGlowCeilingDb they read at their normal baked glow (mix 1,
+    // master-05.png's own level - the hard ceiling Yves approved, see
+    // PluginEditor.cpp's paint() docs). Deliberately independent of the two
+    // AnalogMeter dials' own dB scale - this is a coarse "is there signal at
+    // all" indicator, not a precision meter.
+    constexpr float ventGlowFloorDb = -40.0f;
+    constexpr float ventGlowCeilingDb = -6.0f;
 
     juce::Image loadImage (const char* data, int size)
     {
@@ -84,18 +94,33 @@ namespace
     // stored as a plain property directly on apvts.state.
     constexpr const char* uiScaleStepProperty = "uiScaleStep";
 
-    // v0.3.3: both meters now draw a real dial FACE and a peak LED (see
-    // AnalogMeter.h's docs for why the face/pivot handling changed from
-    // v0.3.2) in addition to the needle. vu-face-v4.png and led-v4.png are
-    // shared (both meters mirror the same dial design/LED), the needle
-    // asset is unchanged from v0.3.2.
+    // v0.3.4: both VU dial faces are now BAKED into master-05.png (see
+    // AnalogMeter.h's docs) - AnalogMeter's Assets no longer carries a face
+    // image, only the live overlay elements (needle, LED).
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
         basilica::gui::AnalogMeter::Assets assets;
-        assets.face = loadImage (BinaryData::vufacev4_png, BinaryData::vufacev4_pngSize);
         assets.needle = loadImage (BinaryData::vuneedlemasterv3_png, BinaryData::vuneedlemasterv3_pngSize);
         assets.led = loadImage (BinaryData::ledv4_png, BinaryData::ledv4_pngSize);
         return assets;
+    }
+
+    // Converts a layout-table rectangle (@1x plate-local units, the
+    // PluginEditorLayout.h table's own coordinate frame) into the matching
+    // rectangle within the MASTER render's own 1264x848 pixel space - i.e.
+    // the source crop to sample from master-06.png/master-glow-dim.png,
+    // both of which are full, un-cropped copies of the same master render
+    // canvas as master-05.png. The @1x table is itself the master canvas
+    // scaled by plateWidth1x / masterCanvasWidthPx (see
+    // PluginEditorLayout.h's top-of-file docs), so this is simply that
+    // scale factor's inverse.
+    juce::Rectangle<int> toMasterPxRect (juce::Rectangle<int> local1x)
+    {
+        constexpr float inverseScale = (float) masterCanvasWidthPx / (float) plateWidth1x;
+        return { juce::roundToInt ((float) local1x.getX() * inverseScale),
+                juce::roundToInt ((float) local1x.getY() * inverseScale),
+                juce::roundToInt ((float) local1x.getWidth() * inverseScale),
+                juce::roundToInt ((float) local1x.getHeight() * inverseScale) };
     }
 }
 
@@ -108,15 +133,19 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
 {
     setLookAndFeel (&lookAndFeel);
 
-    // Static/decorative layers - see this file's top-of-file docs and
-    // paint() below for the compositing order/technique for each.
-    faceplateBaseImage = loadImage (BinaryData::faceplatesilentiumv4base_png, BinaryData::faceplatesilentiumv4base_pngSize);
-    reflectionImage = loadImage (BinaryData::reflectionv4_png, BinaryData::reflectionv4_pngSize);
-    tubeGlowImage = loadImage (BinaryData::tubeglowv4_png, BinaryData::tubeglowv4_pngSize);
-    roseEmblemImage = loadImage (BinaryData::roseemblemv4_png, BinaryData::roseemblemv4_pngSize);
-    screwImage = loadImage (BinaryData::screwv4_png, BinaryData::screwv4_pngSize);
+    // v0.3.4 MASTER-05 BASELINE ARCHITECTURE: exactly three faceplate
+    // images, see paint() below for how each is used. master-05 alone bakes
+    // everything static (plate, bevel, screws, rose, both empty VU faces,
+    // all 9 knobs at rest, both toggles UP, both vents at normal glow) -
+    // master-06 and master-glow-dim only ever contribute small, targeted
+    // crops (a toggle's own zone; the vent-bank regions), never a full-plate
+    // draw of their own.
+    masterBaseline = loadImage (BinaryData::master05_png, BinaryData::master05_pngSize);
+    masterToggleDown = loadImage (BinaryData::master06_png, BinaryData::master06_pngSize);
+    masterGlowDim = loadImage (BinaryData::masterglowdim_png, BinaryData::masterglowdim_pngSize);
 
-    ventFlickerStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    ventGlowStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    ventGlowSmoothedInputDb = audioProcessor.getInputLevelDb();
 
     // Creation order below doubles as the accessibility/keyboard focus
     // order (JUCE's default FocusTraverser walks children in z-order,
@@ -136,36 +165,46 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     addAndMakeVisible (gainReductionMeter);
     addAndMakeVisible (inputLevelMeter);
 
-    // v0.3.3: the 9 knobs are drawn from a SINGLE master-ref image
-    // (knob-v4.png), rotated live via RotatingImageKnob rather than the
-    // older FilmstripKnob's pre-rendered rotation strip - see
-    // RotatingImageKnob.h's docs for why (no filmstrip render exists yet
-    // for this asset generation).
-    const auto knobImage = loadImage (BinaryData::knobv4_png, BinaryData::knobv4_pngSize);
-
+    // v0.3.4: the 9 knobs are BAKED into master-05 at their 12 o'clock rest
+    // pose - RotatingImageKnob is gone, replaced by a plain, fully
+    // transparent-draw juce::Slider per knob (mouse + APVTS + value popup
+    // only, no visible rotation of its own). LookAndFeel_V4::drawRotarySlider
+    // (JUCE 8.0.14) paints its background arc/value arc/thumb purely via
+    // Slider::rotarySliderOutlineColourId/rotarySliderFillColourId/
+    // thumbColourId with no hardcoded alpha override - setting all three to
+    // transparentBlack here makes the control genuinely invisible without
+    // needing a custom paint() override at all (verified against the JUCE
+    // 8.0.14 source, not assumed). This is what structurally rules out the
+    // double-knob artifact Yves rejected in an earlier iteration (there is
+    // no second knob graphic drawn on top of the baked one - just an
+    // invisible hit/drag surface).
     for (size_t i = 0; i < knobLayout.size(); ++i)
     {
         auto& entry = knobLayout[i];
-        knobs[i].slider = std::make_unique<basilica::gui::RotatingImageKnob> (knobImage, knobContentDiameterFraction);
+        knobs[i].slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag,
+                                                           juce::Slider::NoTextBox);
+        knobs[i].slider->setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
+        knobs[i].slider->setColour (juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
+        knobs[i].slider->setColour (juce::Slider::thumbColourId, juce::Colours::transparentBlack);
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
     }
 
-    // Footer toggles (Duck, Listen): still the OLDER toggle_brass_v2_strip_*
-    // filmstrip asset - flagged honestly in this file's top-of-file docs and
-    // the revision's handoff notes as the one element that did NOT get a
-    // fresh master-ref render this iteration (none was commissioned/
-    // supplied). Kept fully functional (real ButtonAttachment) rather than
-    // removed, since Duck/Listen are real parameters a user needs direct
-    // GUI access to, not just automation-lane access.
-    const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
-                                          BinaryData::toggle_brass_v2_strip_40px_4f_pngSize);
-    const auto toggleStrip2x = loadImage (BinaryData::toggle_brass_v2_strip_80px_4f_png,
-                                          BinaryData::toggle_brass_v2_strip_80px_4f_pngSize);
-
+    // Footer toggles (Duck, Listen): BAKED into master-05 in the UP/on
+    // position - a plain, fully transparent juce::ToggleButton per toggle
+    // (mouse + APVTS only, no baked-in text). Its own default paint would
+    // draw a checkbox-style tick box (LookAndFeel_V4::drawToggleButton,
+    // JUCE 8.0.14) - ToggleButton::tickColourId/tickDisabledColourId/
+    // textColourId set to transparentBlack neutralise that the same way as
+    // the knobs above, no custom paint() needed. The VISIBLE up/down state
+    // is drawn by this editor's own paint() (master-05/master-06 crop swap,
+    // see below), never by these button components themselves.
     for (size_t i = 0; i < toggleLayout.size(); ++i)
     {
         auto& entry = toggleLayout[i];
-        toggles[i].button = std::make_unique<basilica::gui::FilmstripToggle> (entry.labelText, toggleStrip1x, toggleStrip2x);
+        toggles[i].button = std::make_unique<juce::ToggleButton> (juce::String());
+        toggles[i].button->setColour (juce::ToggleButton::tickColourId, juce::Colours::transparentBlack);
+        toggles[i].button->setColour (juce::ToggleButton::tickDisabledColourId, juce::Colours::transparentBlack);
+        toggles[i].button->setColour (juce::ToggleButton::textColourId, juce::Colours::transparentBlack);
         configureToggle (toggles[i], entry.parameterId, entry.labelText);
     }
 
@@ -268,84 +307,87 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     const auto plateBounds = juce::Rectangle<float> (plateOrigin.x, plateOrigin.y,
                                                       (float) plateWidth1x * scale, (float) plateHeight1x * scale);
 
-    const auto toPlatePointF = [&] (juce::Point<int> plateLocal)
+    // Converts a layout-table rectangle (@1x plate-local units) into
+    // on-screen pixel coordinates at the editor's current scale step.
+    const auto toScreenRect = [&] (juce::Rectangle<int> local1x)
     {
-        return juce::Point<float> (plateOrigin.x + s ((float) plateLocal.x),
-                                   plateOrigin.y + s ((float) plateLocal.y));
+        return juce::Rectangle<float> (plateOrigin.x + s ((float) local1x.getX()),
+                                       plateOrigin.y + s ((float) local1x.getY()),
+                                       s ((float) local1x.getWidth()),
+                                       s ((float) local1x.getHeight()));
     };
 
     g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
 
-    // 1. Bare baseline plate (obsidian, screws/tube-vent grille/dial voids
-    // already baked in by the render - only the interactive dial
-    // faces/needles/LEDs, the knobs, the rose emblem, and the tube-glow
-    // flicker are missing).
-    if (faceplateBaseImage.isValid())
-        g.drawImage (faceplateBaseImage, plateBounds, juce::RectanglePlacement::centred, false);
+    // 1. Baseline plate: master-05.png alone, filling the plate bounds. This
+    // single image bakes the obsidian plate, brass bevel, 4 corner screws,
+    // rose flourish, both VU dial faces (empty), all 9 knobs at rest, both
+    // toggles UP, and both tube-vent grilles at normal glow - nothing else
+    // is drawn for any of those elements. When every toggle is ON and the
+    // vent-glow mix is at its ceiling (steps 2-3 below both become no-ops),
+    // this is the ENTIRE plate render, exactly matching master-05.png.
+    if (masterBaseline.isValid())
+        g.drawImage (masterBaseline, plateBounds, juce::RectanglePlacement::centred, false);
 
-    // 2. Softbox reflection - a full-canvas overlay pre-aligned to the
-    // base plate's own diagonal highlight (reflection-master-ref.png's own
-    // provenance: "matches the master's diagonal upper-left reflection
-    // exactly"), baked to a DELIBERATELY LOW alpha gain (0.08x, see
-    // CMakeLists.txt's asset docs) before embedding - at full/native
-    // brightness this layer badly overexposed the plate (visually
-    // confirmed and rejected during this revision's own asset prep, before
-    // any JUCE code was written), because the bare plate already bakes its
-    // own version of this same highlight; drawn here purely as a subtle
-    // reinforcement, not a second independent highlight.
-    if (reflectionImage.isValid())
-        g.drawImage (reflectionImage, plateBounds, juce::RectanglePlacement::centred, false);
-
-    // 3. Tube-vent glow flicker: 2 independently-flickering instances per
-    // side (4 total), additively reinforcing the warm glow already baked
-    // into 2 of the 5 slots per vent bank in the base plate render. Uses
-    // the SAME multi-sine flicker technique as AnalogMeter's own dial glow
-    // (see Flicker.h) - repainted every 30Hz tick from timerCallback(),
-    // restricted to ventGlowRepaintBounds so this doesn't force a full
-    // 900x604 plate redraw every frame.
-    if (tubeGlowImage.isValid())
+    // 2. Toggle-Zone overlay: for each toggle that is OFF, blit that
+    // toggle's own zone crop from master-06.png (toggles pointing DOWN) over
+    // the master-05 background just drawn - independently per toggle, so
+    // one can be down while the other stays up. ON toggles are a no-op
+    // (master-05's own UP artwork already shows through unchanged).
+    if (masterToggleDown.isValid())
     {
-        const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-        const auto drawSize = juce::Point<float> (s ((float) tubeGlowDrawWidth1x), s ((float) tubeGlowDrawHeight1x));
-
-        const auto drawTube = [&] (juce::Point<int> bankCentre1x, int xOffset1x, float phaseSeed)
+        for (size_t i = 0; i < toggleLayout.size(); ++i)
         {
-            const auto centre = toPlatePointF ({ bankCentre1x.x + xOffset1x, bankCentre1x.y });
-            const auto flicker = basilica::gui::flickerMultiplier (now, ventFlickerStartTimeSeconds, phaseSeed, 0.04f);
+            if (toggles[i].button->getToggleState())
+                continue;
+
+            const auto zoneLocal1x = juce::Rectangle<int> (toggleZoneSize1x, toggleZoneSize1x)
+                                          .withCentre ({ toggleLayout[i].centreX1x, toggleY1x });
+            const auto destRect = toScreenRect (zoneLocal1x);
+            const auto srcRect = toMasterPxRect (zoneLocal1x);
+
+            g.drawImage (masterToggleDown,
+                        juce::roundToInt (destRect.getX()), juce::roundToInt (destRect.getY()),
+                        juce::roundToInt (destRect.getWidth()), juce::roundToInt (destRect.getHeight()),
+                        srcRect.getX(), srcRect.getY(), srcRect.getWidth(), srcRect.getHeight());
+        }
+    }
+
+    // 3. Vent-glow layer (SUBTLE - Yves-mandated ceiling, see this editor's
+    // header docs): the only two frames are master-glow-dim.png (low
+    // signal) and master-05.png itself (the approved baseline "normal"
+    // glow, already drawn in step 1). ventGlowMix in [0,1] - computed in
+    // timerCallback() from the processor's input-level reading with slow
+    // ballistics plus a small flicker jitter, or set directly via
+    // setVentGlowMixForPreview() for tests/snapshots - cross-blends the TWO
+    // vent-bank regions ONLY between those two frames. At mix=1 the alpha
+    // below is exactly 0 (a genuine no-op, not just a very faint draw), so
+    // the resting look is pixel-identical to master-05.png: the glow can
+    // never exceed that baked level, because there is no third, brighter
+    // frame to draw at all.
+    const auto dimAlpha = juce::jlimit (0.0f, 1.0f, 1.0f - ventGlowMix);
+
+    if (masterGlowDim.isValid() && dimAlpha > 0.001f)
+    {
+        for (const auto& zoneLocal1x : { ventLBankBounds1x, ventRBankBounds1x })
+        {
+            const auto destRect = toScreenRect (zoneLocal1x);
+            const auto srcRect = toMasterPxRect (zoneLocal1x);
 
             juce::Graphics::ScopedSaveState saveState (g);
-            g.setOpacity (juce::jlimit (0.0f, 1.0f, flicker));
-            g.drawImage (tubeGlowImage, juce::Rectangle<float> (drawSize.x, drawSize.y).withCentre (centre));
-        };
-
-        drawTube (ventLBankCentre1x, -tubeGlowInstanceXOffset1x, 0.0f);
-        drawTube (ventLBankCentre1x, tubeGlowInstanceXOffset1x, 1.0f);
-        drawTube (ventRBankCentre1x, -tubeGlowInstanceXOffset1x, 2.0f);
-        drawTube (ventRBankCentre1x, tubeGlowInstanceXOffset1x, 3.0f);
+            g.setOpacity (dimAlpha);
+            g.drawImage (masterGlowDim,
+                        juce::roundToInt (destRect.getX()), juce::roundToInt (destRect.getY()),
+                        juce::roundToInt (destRect.getWidth()), juce::roundToInt (destRect.getHeight()),
+                        srcRect.getX(), srcRect.getY(), srcRect.getWidth(), srcRect.getHeight());
+        }
     }
 
-    // 4. Rose emblem, centred between the two VU dials.
-    if (roseEmblemImage.isValid())
-    {
-        const auto canvasDrawSize = s ((float) roseDiameter1x) / roseContentDiameterFraction;
-        g.drawImage (roseEmblemImage,
-                    juce::Rectangle<float> (canvasDrawSize, canvasDrawSize).withCentre (toPlatePointF (roseCentre1x)));
-    }
-
-    // (VU dial faces/needles/LEDs, the knobs, and the toggles are all
-    // separate child Components, drawn after this method returns - see
-    // resized() for their bounds.)
-
-    // 5. Four corner screws, drawn LAST so they sit on top of everything
-    // else that might overlap their (tiny) corner footprint.
-    if (screwImage.isValid())
-    {
-        const auto canvasDrawSize = s ((float) screwDiameter1x) / screwContentDiameterFraction;
-
-        for (const auto& centre1x : screwCentres1x)
-            g.drawImage (screwImage,
-                        juce::Rectangle<float> (canvasDrawSize, canvasDrawSize).withCentre (toPlatePointF (centre1x)));
-    }
+    // (VU needle/LED/glow overlays are separate AnalogMeter child
+    // components, drawn after this method returns - see resized() for their
+    // bounds. Everything else - rose flourish, screws, knob discs, both VU
+    // faces, tube-vent structure - stays BAKED in master-05, no draw calls
+    // for any of it.)
 }
 
 void SilentiumAudioProcessorEditor::resized()
@@ -368,16 +410,16 @@ void SilentiumAudioProcessorEditor::resized()
                                  s (topStripHeight1x + topStripGap1x) + s (plateLocal.y));
     };
 
-    // Each AnalogMeter's bounds are the exact box its face asset is drawn
-    // into (see PluginEditorLayout.h's meterComponentSize1x/meterLTopLeft1x/
-    // meterRTopLeft1x docs) - NOT centred on the needle pivot, unlike
-    // v0.3.2's convention (the fresh face asset's own hub isn't at its
-    // canvas centre, see AnalogMeter.h's docs).
+    // Each AnalogMeter's bounds are sized/positioned so its needle/LED/glow
+    // overlays land on the plate's baked dial faces (see
+    // PluginEditorLayout.h's meterComponentSize1x/meterLTopLeft1x/
+    // meterRTopLeft1x docs).
     const auto meterSize = s (meterComponentSize1x);
     gainReductionMeter.setBounds (toPlatePoint (meterLTopLeft1x).x, toPlatePoint (meterLTopLeft1x).y, meterSize, meterSize);
     inputLevelMeter.setBounds (toPlatePoint (meterRTopLeft1x).x, toPlatePoint (meterRTopLeft1x).y, meterSize, meterSize);
 
-    // Knobs: explicit STAGGERED centres baked into the master render.
+    // Knobs: explicit STAGGERED centres baked into the master render. Each
+    // Slider's own bounds overlap its baked knob disc exactly.
     const auto knobDiam = s (knobDiameter1x);
 
     for (size_t i = 0; i < knobLayout.size(); ++i)
@@ -387,25 +429,27 @@ void SilentiumAudioProcessorEditor::resized()
                                         .withCentre (toPlatePoint ({ entry.centreX1x, entry.centreY1x })));
     }
 
-    // Two footer toggles (Duck, Listen).
-    const auto toggleSize = s (toggleSize1x);
+    // Two footer toggles (Duck, Listen): the button's own hit-test bounds
+    // match the (generous) toggle-zone size, not the tighter measured
+    // toggle diameter, for a comfortable click target consistent with the
+    // paint()-drawn crop-swap zone.
+    const auto toggleZoneSizePx = s (toggleZoneSize1x);
 
     for (size_t i = 0; i < toggleLayout.size(); ++i)
     {
-        toggles[i].button->setBounds (juce::Rectangle<int> (toggleSize, toggleSize)
-                                          .withCentre (toPlatePoint ({ toggleX1x[i], toggleY1x })));
+        toggles[i].button->setBounds (juce::Rectangle<int> (toggleZoneSizePx, toggleZoneSizePx)
+                                          .withCentre (toPlatePoint ({ toggleLayout[i].centreX1x, toggleY1x })));
     }
 
-    // Tube-vent glow repaint region: a generous rectangle spanning both
-    // banks' two instances plus the draw size, so timerCallback()'s
-    // per-tick repaint() call only invalidates this area rather than the
-    // whole plate.
-    const auto ventPad = juce::jmax (s (tubeGlowDrawWidth1x), s (tubeGlowDrawHeight1x)) / 2 + s (4);
-    const auto ventL = toPlatePoint (ventLBankCentre1x);
-    const auto ventR = toPlatePoint (ventRBankCentre1x);
-    ventGlowRepaintBounds = juce::Rectangle<int> (ventL, juce::Point<int> (1, 1))
-                                .getUnion (juce::Rectangle<int> (ventR, juce::Point<int> (1, 1)))
-                                .expanded (ventPad + s (tubeGlowInstanceXOffset1x));
+    // Vent-glow repaint region: the union of both vent banks' own bounds,
+    // slightly expanded, so timerCallback()'s per-tick repaint() call only
+    // invalidates this area rather than the whole plate.
+    const auto toPlateRect = [&] (juce::Rectangle<int> local1x)
+    {
+        return juce::Rectangle<int> (toPlatePoint (local1x.getPosition()), toPlatePoint (local1x.getBottomRight()));
+    };
+
+    ventGlowRepaintBounds = toPlateRect (ventLBankBounds1x).getUnion (toPlateRect (ventRBankBounds1x)).expanded (s (4));
 }
 
 void SilentiumAudioProcessorEditor::timerCallback()
@@ -413,5 +457,27 @@ void SilentiumAudioProcessorEditor::timerCallback()
     gainReductionMeter.setTargetDb (audioProcessor.getGainReductionDb());
     inputLevelMeter.setTargetDb (audioProcessor.getInputLevelDb());
 
+    // Vent-glow mix: slow (150ms) ballistic follow of the input level,
+    // mapped to [0,1] across ventGlowFloorDb..ventGlowCeilingDb, then a
+    // small flicker jitter (+/-4%, within Yves' +/-3-5% brief) - see this
+    // file's top-of-file docs for why this range is independent of the
+    // meters' own dB scale.
+    constexpr float dt = 1.0f / 30.0f;
+    ventGlowSmoothedInputDb = basilica::gui::AnalogMeter::stepBallistics (
+        ventGlowSmoothedInputDb, audioProcessor.getInputLevelDb(), dt, ventGlowTauSeconds);
+
+    const auto baseMix = juce::jlimit (0.0f, 1.0f,
+        juce::jmap (ventGlowSmoothedInputDb, ventGlowFloorDb, ventGlowCeilingDb, 0.0f, 1.0f));
+
+    const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    const auto flicker = basilica::gui::flickerMultiplier (now, ventGlowStartTimeSeconds, 0.0f, ventGlowFlickerAmplitude);
+    ventGlowMix = juce::jlimit (0.0f, 1.0f, baseMix * flicker);
+
+    repaint (ventGlowRepaintBounds);
+}
+
+void SilentiumAudioProcessorEditor::setVentGlowMixForPreview (float t) noexcept
+{
+    ventGlowMix = juce::jlimit (0.0f, 1.0f, t);
     repaint (ventGlowRepaintBounds);
 }

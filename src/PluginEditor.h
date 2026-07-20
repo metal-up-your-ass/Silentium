@@ -6,31 +6,27 @@
 
 #include "gui/AnalogMeter.h"
 #include "gui/BasilicaLookAndFeel.h"
-#include "gui/FilmstripToggle.h"
-#include "gui/RotatingImageKnob.h"
 #include "presets/PresetBar.h"
 
 class SilentiumAudioProcessor;
 
-// v0.3.1 visual overhaul editor: photoreal skeuomorphic UI built from the
-// reusable src/gui/ component family. Every visible control is wired to a
-// real APVTS parameter or a real metering value - no dead decoration.
-//
-// v0.3.3 (this revision): TRUE COMPONENT ASSEMBLY, per Yves' final art
-// direction and superseding v0.3.2's single baked master faceplate. The
-// plate is now the BARE baseline render
-// (resources/gui/faceplate-silentium-v4-base.png) with every other visible
-// element - the softbox reflection, the tube-vent glow flicker, the rose
-// emblem, both VU dial faces, the peak LEDs, all 9 knobs, and the 4 corner
-// screws - composited as its own standalone master-reference asset, in
-// paint() (the static/decorative layers) or by dedicated child components
-// (AnalogMeter for the two dials incl. needle/glow/LED, RotatingImageKnob
-// for the 9 knobs). See PluginEditorLayout.h for the measured geometry and
-// this file's .cpp for the asset-loading/compositing docs (including which
-// of the two alpha-recovery techniques - circular cutout vs luminance-
-// derived glow - each asset needed, and the one component (the two footer
-// toggles) that could NOT be ported to a fresh master-ref asset this
-// revision).
+// v0.3.4 MASTER-05 BASELINE ARCHITECTURE: a full replacement of the three
+// prior "component composition" attempts (v0.3.1's bare JUCE-drawn
+// background, v0.3.2's single baked master, v0.3.3's true component
+// assembly of many standalone master-reference PNGs), per Yves' explicit
+// rejection of that Frankenstein result. master-05.png is now the SOLE
+// faceplate: obsidian plate, brass bevel, 4 corner screws, rose flourish,
+// both VU dial faces at rest, all 9 knobs at 12 o'clock, the 2 toggles UP,
+// and both tube-vent grilles at normal glow are ALL baked into that one
+// image (see PluginEditor.cpp's paint() docs for the exact z-order of the
+// small set of dynamic overlays drawn on top of it: per-toggle master-06
+// crop swap, a subtle vent-glow cross-blend, and the two AnalogMeter
+// children's needle/LED/glow). Knobs and toggles are now PASSIVE controls -
+// a transparent juce::Slider per knob and a plain juce::ToggleButton per
+// toggle, used purely for mouse handling + APVTS attachment, with no custom
+// paint()/visible rotation of their own (the double-image artifact of
+// overlaying a rotating control on top of a baked one, rejected in an
+// earlier iteration, is structurally impossible this way).
 class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                              private juce::Timer
 {
@@ -41,6 +37,17 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
 
+    // Test/preview-only: sets the vent-glow cross-blend mix directly,
+    // bypassing the normal ballistics + flicker jitter timerCallback()
+    // computes from the processor's own input-level reading - mirrors
+    // AnalogMeter::setImmediateDbForPreview()'s rationale (see that
+    // method's docs): this headless-test-friendly, message-loop-independent
+    // hook is what lets tests/gui/EditorSnapshotTests.cpp render a specific
+    // "live-looking" vent-glow state without pumping real timer ticks
+    // through a running message loop this test binary doesn't have. Normal
+    // operation never calls this.
+    void setVentGlowMixForPreview (float t) noexcept;
+
 private:
     // Re-reads the processor's metering atomics and feeds AnalogMeter -
     // driven by this editor's own juce::Timer (same pattern PresetBar
@@ -48,8 +55,9 @@ private:
     // directly (see PluginProcessor::getGainReductionDb()/getInputLevelDb()).
     // AnalogMeter's own internal timer then does the actual ~300ms
     // ballistic integration independently of this refresh rate. Also
-    // repaints the tube-vent glow region every tick, since that flicker is
-    // drawn directly in this editor's own paint() rather than by a child
+    // recomputes the vent-glow mix (from the input level reading) and
+    // repaints the two vent-bank regions each tick, since that cross-blend
+    // is drawn directly in this editor's own paint() rather than by a child
     // component with its own timer (see .cpp).
     void timerCallback() override;
 
@@ -58,13 +66,13 @@ private:
 
     struct Knob
     {
-        std::unique_ptr<basilica::gui::RotatingImageKnob> slider;
+        std::unique_ptr<juce::Slider> slider;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
     struct Toggle
     {
-        std::unique_ptr<basilica::gui::FilmstripToggle> button;
+        std::unique_ptr<juce::ToggleButton> button;
         std::unique_ptr<ButtonAttachment> attachment;
     };
 
@@ -73,27 +81,32 @@ private:
     void applyScaleStep (int newStepIndex);
     void cycleScale();
 
-    // The tube-vent glow region's on-screen bounds at the current scale
-    // step, recomputed in resized() and used by both paint() (to draw it)
-    // and timerCallback() (to repaint just that region each tick, rather
-    // than the whole plate, for the flicker animation).
+    // Current vent-glow cross-blend mix in [0,1] (0 = master-glow-dim.png,
+    // 1 = master-05.png's own baked "normal" glow - the hard ceiling Yves
+    // approved; see PluginEditor.cpp's paint() docs). Recomputed from the
+    // processor's input-level reading in timerCallback() with slow
+    // ballistics plus a small flicker jitter, read back by paint().
+    float ventGlowMix = 1.0f;
+    float ventGlowSmoothedInputDb = -100.0f;
+    double ventGlowStartTimeSeconds = 0.0;
+
+    // The two vent-bank regions' on-screen bounds at the current scale
+    // step, recomputed in resized() and used by timerCallback() to repaint
+    // just those regions each tick, rather than the whole plate.
     juce::Rectangle<int> ventGlowRepaintBounds;
 
     SilentiumAudioProcessor& audioProcessor;
 
     basilica::gui::BasilicaLookAndFeel lookAndFeel;
 
-    // Static/decorative layers, drawn in paint() (see .cpp) - the bare
-    // baseline plate, the softbox reflection, the tube-glow flicker source,
-    // the rose emblem, and the 4 corner screws. None of these are
+    // The single faceplate baseline (master-05.png) and its two dynamic
+    // overlay sources (master-06.png for toggle-DOWN crops,
+    // master-glow-dim.png for the low end of the vent-glow cross-blend) -
+    // see paint() in the .cpp for how each is used. None of these are
     // interactive, so none need to be a full juce::Component.
-    juce::Image faceplateBaseImage;
-    juce::Image reflectionImage;
-    juce::Image tubeGlowImage;
-    juce::Image roseEmblemImage;
-    juce::Image screwImage;
-
-    double ventFlickerStartTimeSeconds = 0.0;
+    juce::Image masterBaseline;
+    juce::Image masterToggleDown;
+    juce::Image masterGlowDim;
 
     basilica::presets::PresetBar presetBar;
     juce::TextButton scaleButton;
@@ -105,9 +118,10 @@ private:
     static constexpr int numKnobs = 9;
     std::array<Knob, numKnobs> knobs;
 
-    // Footer toggles (Duck, Listen) - still the OLDER FilmstripToggle/
-    // toggle_brass_v2_strip_*.png asset family, not a fresh master-ref
-    // render (see this file's top-of-file docs and .cpp for why).
+    // Footer toggles (Duck, Listen) - passive juce::ToggleButton instances;
+    // the visible up/down state is drawn by paint()'s master-05/master-06
+    // crop swap, not by these components themselves (see this file's
+    // top-of-file docs).
     static constexpr int numToggles = 2;
     std::array<Toggle, numToggles> toggles;
 

@@ -4,30 +4,24 @@
 #include <array>
 #include <atomic>
 
-// Suite-reusable analog-style VU meter: draws its own dial FACE, an
-// incandescent pilot-lamp glow, a peak LED, and the rotating needle - all
-// composited live on top of whatever background sits behind this component
-// (Silentium's bare obsidian faceplate, see PluginEditor.cpp).
+// Suite-reusable analog-style VU meter: draws an incandescent pilot-lamp
+// glow, a peak LED, and the rotating needle - all composited live on top of
+// the baked dial face already present in Silentium's faceplate background
+// (see PluginEditor.cpp).
 //
-// v0.3.3 (this revision): TRUE COMPONENT ASSEMBLY, per Yves' final art
-// direction - every visual element is a standalone master-reference asset
-// (.scaffold/gui-assets/faceplate-silentium-v3/, see that folder's
-// vu-face-no-led.png/led-master-ref.png) rather than baked into one master
-// faceplate PNG. This replaces v0.3.2's "face baked into the shared
-// background, only the needle is live" design, because the new bare
-// baseline plate (master-04-empty.png) has genuinely EMPTY dial voids with
-// no face artwork at all.
-//
-// Because the fresh vu-face-v4.png asset's own hub (the point the needle
-// rotates around) does NOT sit at the exact centre of its square canvas
-// (measured ~50%/63% across/down, not 50%/50%), this component's pivot
-// fraction is a CONFIGURABLE constructor parameter again (unlike v0.3.2's
-// hardcoded 0.5/0.5 "bounds always centred on the pivot" convention, which
-// only worked because that revision deliberately never drew a face image).
-// The component's bounds are simply "the box the face image is drawn into,
-// scaled/positioned so the face's own bezel matches the plate's dial void"
-// - PluginEditorLayout.h/PluginEditor.cpp compute that box directly from
-// the master-04 measurements, not from any pivot-centring rule.
+// v0.3.4 (this revision): MASTER-05 BASELINE ARCHITECTURE, per Yves' final
+// art direction, superseding v0.3.3's "true component assembly" (every
+// visual element as its own standalone master-reference asset). master-05
+// bakes BOTH VU dial faces directly into the single faceplate image (ticks,
+// "VU" wordmark, red zone, hub/anchor bar, brass bezel - everything except
+// the needle and the peak LED, which stay live overlays) - so this
+// component no longer owns or draws a face image at all. The pivot fraction
+// remains a configurable constructor parameter (the baked face's own hub
+// does not sit at the exact centre of the component's bounds - measured
+// ~47.8%/66.6% across/down, see PluginEditorLayout.h's meterPivotXFraction/
+// meterPivotYFraction docs) - PluginEditorLayout.h/PluginEditor.cpp compute
+// this component's bounds directly from the master-05 measurements so the
+// needle/LED/glow land correctly on the already-baked dial.
 namespace basilica::gui
 {
     class AnalogMeter : public juce::Component, private juce::Timer
@@ -35,15 +29,6 @@ namespace basilica::gui
     public:
         struct Assets
         {
-            // The dial face (ticks, "VU" wordmark, red zone, hub/anchor bar
-            // - everything except the needle and the peak LED). Drawn
-            // filling this component's full local bounds (see paint()) -
-            // callers must therefore size/position the component itself so
-            // that mapping lands the face's own bezel on the plate's dial
-            // void (PluginEditorLayout.h's meterL/RTopLeft1x + meterComponentSize1x).
-            // May be left default/invalid (skips the face draw entirely) -
-            // kept for standalone testability without a real asset.
-            juce::Image face;
             juce::Image needle;
 
             // Small red peak-indicator LED (with its own soft halo baked

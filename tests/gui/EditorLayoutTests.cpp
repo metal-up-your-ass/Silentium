@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+
 // v0.3.3 (true component-assembly revision): the knob grid is a STAGGERED
 // layout measured directly off the bare master-04 baseline plate (row 2
 // offset right of row 1), asserted here via explicit per-knob centres
@@ -118,4 +120,45 @@ TEST_CASE ("Rose emblem and corner screws stay within the plate's own canvas bou
     for (const auto& centre : screwCentres1x)
         CHECK (plateCanvas.contains (juce::Rectangle<int> (centre.x - screwRadius, centre.y - screwRadius,
                                                            screwDiameter1x, screwDiameter1x)));
+}
+
+// master-05 baseline architecture (v0.3.4): both toggle centres MUST fall on
+// exactly one shared horizontal line (toggleY1x is a single constant, not a
+// per-toggle Y value - same structural guarantee as the knob-row invariant
+// above) - if it ever drifted, PluginEditor.cpp's toggle-zone crop swap
+// (master-06.png overlay) would land off-centre against the baked artwork.
+TEST_CASE ("Toggle-row Y-alignment invariant: both toggles share the exact same Y centre", "[gui][layout]")
+{
+    using namespace slnt::layout;
+
+    CHECK (toggleX1x.size() == 2);
+    CHECK (toggleX1x[1] > toggleX1x[0]);
+    CHECK (toggleSize1x > 0);
+    CHECK (toggleZoneSize1x >= toggleSize1x);
+    CHECK (toggleY1x > 0);
+}
+
+// Both VU meter dial centres MUST fall on the same horizontal line - a
+// mirrored-duplicate dial design (see PluginEditorLayout.h's docs) with an
+// asymmetric Y would look visibly wrong (one dial noticeably higher than
+// the other) and would mean meterPivotXFraction/meterPivotYFraction (shared
+// between both AnalogMeter instances) could only be correct for one of
+// them.
+TEST_CASE ("Both VU meter dial centres share the exact same Y", "[gui][layout]")
+{
+    using namespace slnt::layout;
+
+    const auto leftCentreY = meterLTopLeft1x.y + meterComponentSize1x / 2;
+    const auto rightCentreY = meterRTopLeft1x.y + meterComponentSize1x / 2;
+
+    CHECK (leftCentreY == rightCentreY);
+
+    // The two meter bays' X centres must be symmetric around the plate's
+    // own horizontal centre (a mirrored-duplicate dial design) within a
+    // small rounding tolerance.
+    const auto leftCentreX = meterLTopLeft1x.x + meterComponentSize1x / 2;
+    const auto rightCentreX = meterRTopLeft1x.x + meterComponentSize1x / 2;
+    const auto plateCentreX = plateWidth1x / 2;
+
+    CHECK (std::abs ((leftCentreX - plateCentreX) + (rightCentreX - plateCentreX)) <= 2);
 }

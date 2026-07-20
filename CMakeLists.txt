@@ -76,66 +76,62 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     presets/factory/duckUnderLead.json
     presets/factory/listenCheck.json
     resources/i18n/de.txt
-    # v0.3.1 photoreal GUI assets (resources/gui/, copied from the suite's
-    # Blender pre-render pipeline at .scaffold/gui-assets/ - see each asset
-    # family's README there for provenance/verification). The repo is
-    # self-contained: these copies are the ones the plugin ships with.
-    # knob_brass_v2_strip_*.png (the earlier filmstrip-rotation knob asset)
-    # is no longer embedded as of v0.3.3 - the 9 knobs now draw
-    # knob-v4.png (below) via a single-image JUCE rotation instead (see
-    # RotatingImageKnob.h's docs for why: no v4-generation filmstrip render
-    # exists yet, and reusing the v2 filmstrip's different render generation
-    # reintroduced a visible style mismatch against the new master-ref
-    # assets). The PNG remains on disk unreferenced, not deleted.
-    resources/gui/toggle_brass_v2_strip_40px_4f.png
-    resources/gui/toggle_brass_v2_strip_80px_4f.png
+    # Preset-bar / scale-button brass caps (unrelated to the faceplate
+    # rework below - BasilicaLookAndFeel.cpp::drawButtonBackground() 3-slices
+    # these for every juce::TextButton the suite draws, e.g. the preset bar's
+    # navigation buttons and this editor's scale-cycle button). Deliberately
+    # OUT OF SCOPE for the master-05 baseline revision (BasilicaLookAndFeel.{h,cpp}
+    # is not in that revision's file whitelist) - kept embedded even though
+    # an earlier draft of this revision's asset-removal list named them
+    # alongside the (genuinely unrelated) toggle_brass_v2_strip_* footer-
+    # toggle asset family; removing them would break BasilicaLookAndFeel.cpp's
+    # compile.
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png
     resources/gui/button_brass_v1_hover_80x56.png
-    # v0.3.2 (single-master-render revision, now superseded): the old
-    # single-image faceplate-silentium-v3.png (obsidian plate + baked
-    # knobs/toggles/rose all in one PNG) remains on disk unreferenced (not
-    # deleted, in case of rollback) but is no longer embedded.
-    #
-    # v0.3.3 (this revision): true COMPONENT ASSEMBLY - every element is now
-    # a standalone master-reference asset composited in PluginEditor.cpp/
-    # AnalogMeter.cpp rather than one baked image, per Yves' final art
-    # direction (.scaffold/gui-assets/faceplate-silentium-v3/, master-04
-    # generation - see PluginEditorLayout.h's docs for the measured geometry
-    # each asset is positioned against). All of the PNGs below except
-    # faceplate-silentium-v4-base.png and vu-needle-master-v3.png were
-    # RE-DERIVED from their *-master-ref.png source renders (same directory)
-    # by this revision's own analysis scripts
-    # (.scaffold/gui-assets/faceplate-silentium-v3/analysis/extract_rose_v4.py
-    # for the rose emblem) - every *-master-ref.png source render ships on a
-    # PURE BLACK background with no alpha channel, so each was converted
-    # ONCE, OFFLINE (numpy/PIL, not at plugin runtime), into a proper RGBA
-    # PNG before embedding - the shipped resources/gui/*-v4.png files below
-    # are already the converted RGBA result; PluginEditor.cpp/AnalogMeter.cpp
-    # just draw them directly:
-    #   - knob-v4/screw-v4/vu-face-v4: a measured CIRCULAR alpha cutout (the
-    #     object is solid/opaque matter that must occlude whatever sits
-    #     behind it - a luminance-derived alpha would wrongly turn the
-    #     object's own shadowed crevices semi-transparent).
-    #   - led-v4/tube-glow-v4/reflection-v4: alpha = max(R,G,B) of the
-    #     source pixel (a true emissive glow/reflection asset, where
-    #     brightness and "how much this should show" are the same thing by
-    #     construction - draws correctly with ordinary SrcOver compositing,
-    #     no real additive blend mode needed).
-    #   - rose-emblem-v4: colour-thresholded (gold vs the source's dark
-    #     squircle mounting plate) rather than the earlier iteration's
-    #     circular-crop extraction, which left the squircle's background
-    #     disc intact - see analysis/extract_rose_v4.py.
-    resources/gui/faceplate-silentium-v4-base.png
-    resources/gui/reflection-v4.png
-    resources/gui/tube-glow-v4.png
-    resources/gui/rose-emblem-v4.png
-    resources/gui/vu-face-v4.png
-    resources/gui/led-v4.png
-    resources/gui/knob-v4.png
-    resources/gui/screw-v4.png
+    # v0.3.4 MASTER-05 BASELINE ARCHITECTURE (this revision) - a full
+    # replacement of the three prior "component composition" GUI attempts
+    # (v0.3.1's bare JUCE-drawn background, v0.3.2's single-master
+    # faceplate, v0.3.3's true component assembly of many standalone
+    # master-reference PNGs), per Yves' explicit rejection of that
+    # Frankenstein result. Exactly THREE faceplate images now ship, copied
+    # from .scaffold/gui-assets/faceplate-silentium-v3/ (repo-relative to
+    # the suite root, one level above this repo):
+    #   - master-05.png: the SOLE faceplate baseline. Bakes the obsidian
+    #     plate, brass bevel, 4 corner screws, rose flourish, both VU dial
+    #     faces (empty - no needle, no LED), all 9 knobs at 12 o'clock rest,
+    #     both toggles UP/on, and both tube-vent grilles at normal glow -
+    #     ALL of it, in one image. PluginEditor.cpp draws only this for the
+    #     entire plate when every toggle is on and the vent-glow mix is at
+    #     its ceiling.
+    #   - master-06.png: identical to master-05 except both toggles point
+    #     DOWN. PluginEditor.cpp blits ONLY a toggle's own small zone crop
+    #     from this image (never the full plate) when that toggle is off.
+    #   - master-glow-dim.png: identical to master-05 except the tube-vent
+    #     glow is at a SUBTLE, dimmer intensity. PluginEditor.cpp
+    #     cross-blends ONLY the two vent-bank region crops between this
+    #     image (low signal) and master-05 itself (the approved ceiling -
+    #     never a third, brighter "hot" frame; master-glow-hot.png/
+    #     master-glow-very-hot.png exist in the scaffold but are
+    #     DELIBERATELY NOT embedded - Yves rejected that look verbatim, see
+    #     PluginEditor.cpp's paint() docs).
+    # PluginEditorLayout.h's geometry table was re-measured directly against
+    # master-05.png by
+    # .scaffold/gui-assets/faceplate-silentium-v3/analysis/measure_master_05.py
+    # (NOT copied from the v0.3.3/master-04 table - a different render
+    # generation).
+    resources/gui/master-05.png
+    resources/gui/master-06.png
+    resources/gui/master-glow-dim.png
+    # Rotating VU needle overlay (unchanged since v0.3.2/v0.3.3 - see
+    # AnalogMeter.cpp's docs for the dB->angle tick table's own provenance).
     resources/gui/vu-needle-master-v3.png
+    # Peak-LED overlay (unchanged since v0.3.3 - master-05 bakes NO LED, so
+    # this alpha-modulated overlay stays; alpha = max(R,G,B) of the source
+    # pixel, a true emissive glow asset that draws correctly with ordinary
+    # SrcOver compositing).
+    resources/gui/led-v4.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
     # for every JUCE-drawn text surface.
     resources/fonts/EBGaramond-Regular.ttf

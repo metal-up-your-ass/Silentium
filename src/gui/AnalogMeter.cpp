@@ -158,18 +158,16 @@ namespace basilica::gui
 
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
 
-        // 1. Dial face (ticks, "VU" wordmark, red zone, hub/anchor bar) -
-        // fills the whole component, which PluginEditor.cpp has already
-        // sized/positioned so this lands the face's own bezel on the
-        // plate's dial void.
-        if (assets.face.isValid())
-            g.drawImage (assets.face, bounds);
-
+        // The dial face (ticks, "VU" wordmark, red zone, hub/anchor bar) is
+        // BAKED into master-05.png (Silentium's single faceplate baseline,
+        // see PluginEditor.cpp's paint()) - no draw call for it here.
+        // PluginEditorLayout.h positions/sizes this component so the
+        // overlays below still land correctly on that baked artwork.
         const auto pivotX = bounds.getWidth() * pivotXFraction;
         const auto pivotY = bounds.getHeight() * pivotYFraction;
         const auto halfSize = 0.5f * juce::jmin (bounds.getWidth(), bounds.getHeight());
 
-        // 2. Incandescent pilot-lamp glow - drawn UNDER the needle, matching
+        // 1. Incandescent pilot-lamp glow - drawn UNDER the needle, matching
         // a grain-of-wheat pilot lamp sitting behind the dial just above the
         // hub. Flicker gently modulates both alpha stops in lockstep (a
         // single scalar multiplier keeps the two-stop gradient's relative
@@ -193,7 +191,7 @@ namespace basilica::gui
             g.fillRect (bounds);
         }
 
-        // 3. Peak LED (upper-left of the dial) - alpha-animated by the
+        // 2. Peak LED (upper-left of the dial) - alpha-animated by the
         // peak-hold/fade state machine in timerCallback(), fully skipped
         // (no draw call at all) when its alpha is at/near zero so the
         // asset's own baked halo never leaves a faint always-on ring.
@@ -209,7 +207,7 @@ namespace basilica::gui
                         juce::Rectangle<float> (ledDrawSize, ledDrawSize).withCentre ({ ledCx, ledCy }));
         }
 
-        // 4. Rotating needle.
+        // 3. Rotating needle.
         if (assets.needle.isValid())
         {
             const auto needleDrawSize = needleSizeFraction * juce::jmin (bounds.getWidth(), bounds.getHeight());
