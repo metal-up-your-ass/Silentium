@@ -4,16 +4,25 @@
 #include <array>
 #include <atomic>
 
-// Suite-reusable analog-style meter: a static face + needle image rotated
-// live via juce::AffineTransform around the face's baked pivot rivet - both
-// pre-rendered assets from the nano-banana-approved vu-nano-v1 family (see
-// .scaffold/gui-assets/vu-nano-v1/README.md, promoted here from Silentium as
-// the reusable Basilica Audio VU component, v0.3.2). Unlike the earlier
-// vu-brass-v1/vu-dome-v1 families, vu-nano-v1 ships a SINGLE 1024x1024 tier
-// per layer (no @1x/@2x pair, no separate glass decal - the face's own baked
-// highlight carries that read) and the needle is authored at rest pointing
-// STRAIGHT UP (0 deg / 12 o'clock), so JUCE applies the measured dB->angle
-// value directly as the rotation - no "rest angle" subtraction.
+// Suite-reusable analog-style meter overlay: a rotating needle drawn on top
+// of the SINGLE photoreal master faceplate (see
+// .scaffold/gui-assets/faceplate-silentium-v3/) rather than owning its own
+// face image. The master render already bakes the dial face, ticks, "VU"
+// wordmark, hub, and anchor bar for both meters - this component's job is
+// only the two things that must be LIVE: the rotating needle and a subtle
+// incandescent pilot-lamp glow behind it (see paint()).
+//
+// v0.3.2 (this revision): replaces the earlier "static face image + rotating
+// needle image" pair (vu-nano-v1) now that the face is baked into the shared
+// background. The component's bounds are ALWAYS a square centred exactly on
+// the meter's pivot (the brass hub the needle rotates around in the master
+// render, see faceplate-metadata.json's "meter_component_convention") - so
+// the needle's pivot fraction within this component is always (0.5, 0.5),
+// unlike the old per-asset-measured pivotXFraction/pivotYFraction. The
+// needle asset itself (vu-needle-master-v3.png) is likewise authored on a
+// square canvas with its own pivot dead-centre, rendered at rest pointing
+// STRAIGHT UP (0 deg / 12 o'clock) - JUCE applies the measured dB->angle
+// value directly as the rotation, no rest-angle subtraction.
 namespace basilica::gui
 {
     class AnalogMeter : public juce::Component, private juce::Timer
@@ -21,11 +30,21 @@ namespace basilica::gui
     public:
         struct Assets
         {
+            // Optional: only set if a caller still wants this component to
+            // draw its own face (kept for flexibility/testability - the
+            // face draw is skipped entirely when invalid, see paint()).
+            // Silentium's usage (PluginEditor.cpp) deliberately leaves this
+            // default/invalid, since the dial face is baked into the shared
+            // background image behind the whole plate.
             juce::Image face;
             juce::Image needle;
         };
 
-        AnalogMeter (Assets assetsIn, juce::String accessibleTitle);
+        // flickerSeedIn: per-instance phase offset for the incandescent
+        // glow's flicker (see paint()/timerCallback()) so that two meters
+        // sharing the same class never flicker in lockstep - pass a
+        // different value per instance (e.g. 0.0f / 1.0f).
+        AnalogMeter (Assets assetsIn, juce::String accessibleTitle, float flickerSeedIn = 0.0f);
         ~AnalogMeter() override;
 
         // Thread-safe (plain atomic store): the instantaneous value in dB,
@@ -46,30 +65,15 @@ namespace basilica::gui
         static float stepBallistics (float currentSmoothed, float target, float dtSeconds, float tauSeconds) noexcept;
 
         // dB -> face-relative rotation angle in degrees, piecewise-linearly
-        // interpolated across the asset's own measured tick table (see the
-        // .cpp - copied verbatim from .scaffold/gui-assets/vu-nano-v1/
-        // vu-metadata.json's tick_angle_at_db, the ground truth for where
-        // this face's engraved arc ticks actually sit, measured by
-        // analyze_face.py) and clamped beyond the table's ends. Exposed for
-        // unit testing. Degrees are clockwise from straight-up (12 o'clock) -
-        // this IS the needle's absolute rotation angle (the needle asset's
-        // own rest pose is 0 deg / straight up), unlike vu-dome-v1's table
-        // which needed a rest-angle delta subtracted first.
+        // interpolated across the master render's own measured tick table
+        // (see the .cpp - copied verbatim from
+        // .scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json's
+        // per-meter dB_angle_table_deg, both meters share the same relative
+        // table per that file's provenance notes) and clamped beyond the
+        // table's ends. Exposed for unit testing. Degrees are clockwise from
+        // straight-up (12 o'clock) - this IS the needle's absolute rotation
+        // angle (the needle asset's own rest pose is 0 deg / straight up).
         static float tickAngleDegreesForDb (float db) noexcept;
-
-        // vu-nano-v1's visible dial (bezel outer edge) spans face_diameter_px
-        // / canvas_size_px = 808.5 / 1024 of the rendered canvas
-        // (vu-metadata.json), with a transparent margin around it (see
-        // .scaffold/gui-assets/vu-nano-v1/mask_face.py - the approved face
-        // render is fully OPAQUE with a baked black background; mask_face.py
-        // derives the shippable transparent-margin PNG this component
-        // actually draws, matching this component's own bay-overhang
-        // convention). A layout that wants the visible dial to fill a given
-        // rectangle must size this component 1/contentFractionOfCanvas
-        // larger than that rectangle, centred on it (the margin is
-        // transparent and this component never intercepts mouse events, so
-        // the overhang is harmless). See SilentiumAudioProcessorEditor::resized().
-        static constexpr float contentFractionOfCanvas = 808.5f / 1024.0f;
 
     private:
         // A-07 fix (M3 a11y review): read-only accessibility value
@@ -83,6 +87,7 @@ namespace basilica::gui
         class MeterValueInterface;
 
         void timerCallback() override;
+        float currentFlickerMultiplier() const noexcept;
 
         Assets assets;
         juce::String title;
@@ -90,14 +95,34 @@ namespace basilica::gui
         std::atomic<float> targetDb { -100.0f };
         float smoothedDb = -100.0f;
 
-        // Needle pivot as a fraction of the layer canvas - measured directly
-        // on vu-face-no-needle.png by analyze_face.py (brass-hub centroid,
-        // HSV hue/saturation thresholding), see vu-metadata.json's
-        // pivot_frac_xy. MUST stay in sync with the face/needle assets: if
-        // either is re-rendered, re-run analyze_face.py and update both this
-        // pair and the tick table together.
-        static constexpr float pivotXFraction = 0.499838f;
-        static constexpr float pivotYFraction = 0.706359f;
+        // Needle/glow pivot as a fraction of this component's own bounds -
+        // ALWAYS (0.5, 0.5) under the pivot-centred convention documented
+        // above (both meters, unlike the old per-asset-measured fractions).
+        static constexpr float pivotXFraction = 0.5f;
+        static constexpr float pivotYFraction = 0.5f;
+
+        // Incandescent pilot-lamp glow geometry (Yves' brief): centred
+        // slightly ABOVE the pivot (offset expressed as a fraction of the
+        // component half-size, matching faceplate-metadata.json's
+        // glow_overlay block), radius as a fraction of the half-size,
+        // tapering to fully transparent.
+        static constexpr float glowCentreOffsetYFraction = -0.18f;
+        static constexpr float glowRadiusFraction = 0.62f;
+        static constexpr float glowAlphaCentre = 0.38f;
+        static constexpr float glowAlphaMid = 0.16f;
+
+        // Flicker: sum of three low-frequency sine layers at deliberately
+        // non-harmonic frequencies (no common integer ratio) for an
+        // irregular, non-periodic-feeling modulation rather than a smooth
+        // metronomic pulse - amplitudeFraction is the peak deviation from
+        // the base alpha values above (+-4%, within Yves' +-3-5% brief).
+        // flickerPhaseSeed offsets each sine layer's phase per-instance so
+        // two AnalogMeters never flicker in lockstep.
+        float flickerPhaseSeed = 0.0f;
+        double startTimeSeconds = 0.0;
+        static constexpr float flickerAmplitudeFraction = 0.04f;
+        static constexpr std::array<float, 3> flickerFrequenciesHz { 0.63f, 1.13f, 0.29f };
+        static constexpr std::array<float, 3> flickerWeights { 0.5f, 0.3f, 0.2f };
 
         static constexpr double timerHz = 30.0;
         static constexpr float ballisticsTauSeconds = 0.3f;

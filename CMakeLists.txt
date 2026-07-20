@@ -84,28 +84,30 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     resources/gui/knob_brass_v2_strip_320px_128f.png
     resources/gui/toggle_brass_v2_strip_40px_4f.png
     resources/gui/toggle_brass_v2_strip_80px_4f.png
-    # v0.3.2: vu-nano-v1 replaces vu-dome-v1 as the meter face/needle (the
-    # nano-banana-approved Weston-style VU) - single tier (1024x1024, no
-    # separate @1x/@2x renders, per .scaffold/gui-assets/vu-nano-v1/README.md)
-    # and no separate glass layer (the face's own baked highlight carries
-    # that read). The old vu_dome_*.png files remain on disk unreferenced
-    # (not deleted, in case of rollback) but are no longer embedded.
-    resources/gui/vu_nano_face_1024x1024.png
-    resources/gui/vu_nano_needle_1024x1024.png
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png
     resources/gui/button_brass_v1_hover_80x56.png
-    resources/gui/faceplate_silentium_v2_900x600.png
-    resources/gui/faceplate_silentium_v2_1800x1200.png
+    # v0.3.2 (this revision): single photoreal MASTER faceplate render -
+    # obsidian plate, both VU dials (face/ticks/hub/anchor bar), tube-vent
+    # grilles, all 9 brass knobs, both toggles, and the rose emblem all
+    # baked into one image (.scaffold/gui-assets/faceplate-silentium-v3/,
+    # see faceplate-metadata.json for the measured geometry PluginEditor.cpp
+    # and PluginEditorLayout.h position live controls against). Replaces the
+    # v0.3.1/v0.3.2 JUCE-drawn glossy plate AND the separate vu-nano-v1
+    # face/needle pair - only the rotating needle is still drawn live now
+    # (vu-needle-master-v3.png, a hand-authored vector-equivalent asset, see
+    # that directory's faceplate-metadata.json "asset_provenance" for why a
+    # raster extraction of the master's own needle wasn't used). The old
+    # faceplate_silentium_v2_*.png and vu_nano_*.png files remain on disk
+    # unreferenced (not deleted, in case of rollback) but are no longer
+    # embedded.
+    resources/gui/faceplate-silentium-v3.png
+    resources/gui/vu-needle-master-v3.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
-    # for every JUCE-drawn text surface - the same family the faceplate's
-    # engraved labels are set in (see BasilicaLookAndFeel.h).
+    # for every JUCE-drawn text surface.
     resources/fonts/EBGaramond-Regular.ttf
     resources/fonts/EBGaramond-SemiBold.ttf
-    # Brand icon (already the plugin's ICON_BIG; embedded here additionally
-    # so the editor can draw it in the faceplate's header roundel).
-    docs/assets/icon-256.png
 )
 
 # ==============================================================================

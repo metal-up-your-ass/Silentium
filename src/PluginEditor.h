@@ -18,26 +18,33 @@ class SilentiumAudioProcessor;
 // real APVTS parameter or a real metering value - no dead decoration, per
 // the basilica-gui-design skill's binding spec.
 //
-// v0.3.2: the plate background switched from a pre-rendered photoreal PNG
-// (resources/gui/faceplate_silentium_v2_*.png, still bundled via BinaryData
-// but no longer loaded/drawn anywhere - Yves' call, left in place for manual
-// cleanup) to a JUCE-drawn glossy-black surface painted directly in paint()
-// - base gradient, a broad soft upper-left reflection, and a hairline outer
-// bevel, styled after brand/mock-raytrace-1-frontal.png. See paint()'s docs.
+// v0.3.2 (this revision): the plate is a SINGLE photoreal MASTER faceplate
+// render (resources/gui/faceplate-silentium-v3.png - obsidian plate, both VU
+// dials, tube-vent grilles, all 9 knobs, both toggles, and the rose emblem
+// all baked into one image) drawn once in paint(), replacing both the
+// earlier pre-rendered faceplate_silentium_v2 PNG AND the JUCE-drawn
+// glossy-black plate (gradient/reflection/bevel/header-roundel) that
+// preceded it. FilmstripKnob/FilmstripToggle/AnalogMeter are positioned
+// directly on top of the baked artwork (see PluginEditorLayout.h,
+// re-derived from
+// .scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json) -
+// the baked knob/toggle art underneath simply holds the visual position
+// until the interactive component (sized identically) draws over it every
+// frame. AnalogMeter no longer draws a face image at all in this usage -
+// only the live rotating needle plus a subtle incandescent glow, see
+// AnalogMeter.h/.cpp.
 //
-// TYPOGRAPHY / LABELS: since v0.3.1 every static caption (title, knob
-// labels, toggle labels) was ENGRAVED into the faceplate PNG itself (EB
-// Garamond, gold inlay, rendered by the Blender pipeline) - there are no
-// juce::Label captions in this editor. Since the v0.3.2 background swap
-// those baked captions are GONE (the plate art that carried them is no
-// longer drawn) - only the knob-grid/aux-bay geometry from the same
-// slnt::layout table remains. Accessible names are unaffected: every
+// TYPOGRAPHY / LABELS: every static caption (title, knob labels, toggle
+// labels) was engraved into earlier faceplate art generations; the current
+// master render carries NO baked text labels at all (Yves' art direction -
+// dial numerals/VU wordmark only). Accessible names are unaffected: every
 // control still carries its parameter name via setTitle().
 //
 // Window scaling is STEPPED (100/150/200%, a UA-style corner control next to
 // the preset bar, persisted as a plain property on the APVTS state tree) -
 // not a free/continuous resize, because the backing art is pre-rendered at
-// fixed density tiers (see src/gui/ImageDensity.h).
+// a fixed resolution (resources/gui/faceplate-silentium-v3.png, drawn scaled
+// via RectanglePlacement::centred - see paint()).
 class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                              private juce::Timer
 {
@@ -81,16 +88,13 @@ private:
 
     basilica::gui::BasilicaLookAndFeel lookAndFeel;
 
-    juce::Image brandIconImage;
-
-    // v0.3.2: shared drop-shadow, applied via setComponentEffect() to every
-    // meter and knob so they read as objects sitting ON the glossy plate
-    // rather than pasted flat onto it (per brand/mock-raytrace-1-frontal.png
-    // - see the constructor and applyScaleStep()). One instance is shared
-    // across all of them since DropShadowEffect is stateless between
-    // applyEffect() calls and painting is always single-threaded on the
-    // message thread - not per-component state.
-    juce::DropShadowEffect controlShadowEffect;
+    // The single master faceplate render, drawn scaled-to-fit in paint() -
+    // see PluginEditor.h's top-of-file docs and PluginEditorLayout.h. No
+    // synthetic drop-shadow/gradient/bevel is applied to any control
+    // anymore: the master render already bakes plausible lighting/shadowing
+    // for every knob/toggle/meter, and layering a JUCE-drawn shadow on top
+    // read as exactly the "Frankenstein" mismatch Yves rejected.
+    juce::Image faceplateImage;
 
     basilica::presets::PresetBar presetBar;
     juce::TextButton scaleButton;

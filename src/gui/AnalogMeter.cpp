@@ -1,17 +1,21 @@
 #include "AnalogMeter.h"
 
+#include <cmath>
+
 namespace
 {
-    // Copied verbatim from .scaffold/gui-assets/vu-nano-v1/vu-metadata.json's
-    // tick_angle_at_db (measured by analyze_face.py against
-    // vu-face-no-needle.png - see that script's docstring for the polar
-    // "unwrap" method). v0.3.2: the vu-nano-v1 asset family - this table is
-    // NOT interchangeable with vu-dome-v1's old ~93-degree table even though
-    // the two happen to look superficially similar (both classic VU arcs);
-    // a side-by-side overlay confirmed the old table's rays land measurably
-    // off this face's actual tick marks. Nine labelled ticks (-20 dB has the
-    // widest sweep down to +3 dB), not evenly spaced - a hand-tuned classic
-    // VU arc, not a physically derived curve.
+    // Copied verbatim from
+    // .scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json's
+    // per-meter "dB_angle_table_deg" (both meters share this same relative
+    // table - see that file's "_provenance" notes: measured directly on
+    // master-03-raw.png via polar-unwrap + fine pixel-grid cross-validation
+    // for the -20dB/0dB anchors, with the -20 and 0 tick radii from the
+    // pivot matching to within 0.1px as the confidence check; the remaining
+    // seven ticks are proportionally rescaled from the previous vu-nano-v1
+    // asset's reference table, scale factor 0.800, since a clean independent
+    // re-measurement of every intermediate tick was not achievable at this
+    // render's resolution). NOT interchangeable with vu-nano-v1's old table
+    // - this master render's arc sits at measurably different angles.
     struct Tick
     {
         float db;
@@ -19,44 +23,33 @@ namespace
     };
 
     constexpr std::array<Tick, 9> ticks {
-        Tick { -20.0f, -41.94f }, Tick { -10.0f, -27.69f }, Tick { -7.0f, -16.31f },
-        Tick { -5.0f, -6.47f }, Tick { -3.0f, 3.19f }, Tick { 0.0f, 14.08f },
-        Tick { 1.0f, 23.39f }, Tick { 2.0f, 32.71f }, Tick { 3.0f, 42.04f }
+        Tick { -20.0f, -26.80f }, Tick { -10.0f, -15.40f }, Tick { -7.0f, -6.29f },
+        Tick { -5.0f, 1.58f }, Tick { -3.0f, 9.31f }, Tick { 0.0f, 18.02f },
+        Tick { 1.0f, 25.47f }, Tick { 2.0f, 32.92f }, Tick { 3.0f, 40.39f }
     };
 }
 
 namespace basilica::gui
 {
-    AnalogMeter::AnalogMeter (Assets assetsIn, juce::String accessibleTitle)
-        : assets (std::move (assetsIn)), title (std::move (accessibleTitle))
+    AnalogMeter::AnalogMeter (Assets assetsIn, juce::String accessibleTitle, float flickerSeedIn)
+        : assets (std::move (assetsIn)), title (std::move (accessibleTitle)), flickerPhaseSeed (flickerSeedIn)
     {
         setTitle (title);
         setDescription (title);
 
         // Pure display - never steals mouse events from controls that may
-        // sit under this component's (partly transparent) bounds. Relevant
-        // because vu-nano-v1's layers carry a transparent margin around the
-        // dial content (see contentFractionOfCanvas in AnalogMeter.h), so
-        // the component is deliberately laid out larger than the visible
-        // dial.
+        // sit under this component's (partly transparent) bounds.
         setInterceptsMouseClicks (false, false);
 
-        // PR #25 fix (rendering-quality review of docs/gui-preview.png): the
-        // face and needle are both baked at 1024x1024 but this component is
-        // typically laid out at ~200px, so paint() is always a heavy
-        // DOWNSCALE, not an upscale. setBufferedToImage(true) gives this
-        // Component its own StandardCachedComponentImage backing store
-        // (juce_Component.cpp) so the downscale happens once per repaint
-        // into a cached bitmap at the component's actual device-pixel size
-        // rather than re-touching the full 1024px source on every blit -
-        // JUCE 8.0.14's recommended path for a static-composition (face +
-        // one rotating overlay) skeuomorphic component like this one, per
-        // the module's own bufferToImage usage pattern
-        // (juce_gui_basics/components/juce_Component.cpp). This does not by
-        // itself change resampling quality - that is the
-        // setImageResamplingQuality() call in paint() below - it only
-        // caches the *result*.
-        setBufferedToImage (true);
+        // Both layers this component still draws (the incandescent glow
+        // gradient and the needle) are cheap to re-rasterise every frame at
+        // this component's small on-screen size, and the glow's flicker
+        // needs to repaint continuously - a cached StandardCachedComponentImage
+        // (setBufferedToImage) would just be invalidated on nearly every
+        // timer tick anyway, so it is not used here (unlike the old
+        // face+needle version, which had a large static face layer worth
+        // caching).
+        startTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
         startTimerHz ((int) timerHz);
     }
@@ -98,63 +91,97 @@ namespace basilica::gui
         return currentSmoothed + (target - currentSmoothed) * alpha;
     }
 
+    float AnalogMeter::currentFlickerMultiplier() const noexcept
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+        const auto t = (float) (now - startTimeSeconds);
+
+        float sum = 0.0f;
+
+        for (size_t i = 0; i < flickerFrequenciesHz.size(); ++i)
+        {
+            const auto phase = flickerPhaseSeed * 3.7f + (float) i * 2.1f;
+            sum += flickerWeights[i] * std::sin (juce::MathConstants<float>::twoPi * flickerFrequenciesHz[i] * t + phase);
+        }
+
+        // flickerWeights sum to 1.0, so sum is already normalised to [-1, 1].
+        return 1.0f + flickerAmplitudeFraction * sum;
+    }
+
     void AnalogMeter::timerCallback()
     {
         const auto target = targetDb.load (std::memory_order_relaxed);
         const auto next = stepBallistics (smoothedDb, target, 1.0f / (float) timerHz, ballisticsTauSeconds);
 
-        if (! juce::approximatelyEqual (next, smoothedDb))
-        {
-            smoothedDb = next;
+        const auto dbChanged = ! juce::approximatelyEqual (next, smoothedDb);
+        smoothedDb = next;
+
+        // The incandescent glow's flicker needs continuous repaints even
+        // when the dB reading is stable - skip entirely when not on screen
+        // (host bypass / hidden window), per Yves' brief, rather than
+        // spending repaint cycles on an invisible component.
+        if (isShowing())
             repaint();
-        }
+        else if (dbChanged)
+            repaint();
     }
 
     void AnalogMeter::paint (juce::Graphics& g)
     {
         const auto bounds = getLocalBounds().toFloat();
 
-        // PR #25 fix: both layers are 1024x1024 source assets drawn into a
-        // ~200px component, i.e. always downscaled. Graphics defaults to
-        // mediumResamplingQuality (juce_GraphicsContext.h) - on the
-        // CoreGraphics backend that is kCGInterpolationMedium vs.
-        // highResamplingQuality's kCGInterpolationHigh
-        // (juce_CoreGraphicsContext_mac.mm, JUCE 8.0.14); the low-level
-        // software rasteriser (juce_RenderingHelpers.h) makes the same
-        // low/medium/high distinction for its own area-averaging resample
-        // filter. Raising it here sharpens exactly the thin-needle-taper
-        // edges Yves flagged as blurry at rendered size, at the cost of a
-        // (here negligible, buffered-and-cached) heavier per-repaint
-        // resample. Must be set before EVERY drawImage*/drawImageTransformed
-        // call in this method - it is graphics-state, not global.
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
 
+        // Optional face draw - skipped when invalid (Silentium's usage
+        // always leaves this default, see Assets' docs), kept only so this
+        // reusable component still works stand-alone/in tests without a
+        // baked background behind it.
         if (assets.face.isValid())
             g.drawImage (assets.face, bounds);
+
+        const auto pivotX = bounds.getWidth() * pivotXFraction;
+        const auto pivotY = bounds.getHeight() * pivotYFraction;
+        const auto halfSize = 0.5f * juce::jmin (bounds.getWidth(), bounds.getHeight());
+
+        // Incandescent pilot-lamp glow - drawn UNDER the needle, matching a
+        // grain-of-wheat pilot lamp sitting behind the dial just above the
+        // hub. Flicker gently modulates both alpha stops in lockstep (a
+        // single scalar multiplier keeps the two-stop gradient's relative
+        // shape constant while its overall brightness breathes).
+        {
+            const auto flicker = currentFlickerMultiplier();
+            const auto glowCx = pivotX;
+            const auto glowCy = pivotY + glowCentreOffsetYFraction * halfSize;
+            const auto glowRadius = glowRadiusFraction * halfSize;
+
+            juce::ColourGradient glowGradient (
+                juce::Colour::fromRGB (255, 200, 120).withAlpha (juce::jlimit (0.0f, 1.0f, glowAlphaCentre * flicker)),
+                glowCx, glowCy,
+                juce::Colours::transparentBlack,
+                glowCx, glowCy + glowRadius,
+                true);
+            glowGradient.addColour (0.5, juce::Colour::fromRGB (255, 170, 90)
+                                             .withAlpha (juce::jlimit (0.0f, 1.0f, glowAlphaMid * flicker)));
+
+            g.setGradientFill (glowGradient);
+            g.fillRect (bounds);
+        }
 
         if (assets.needle.isValid())
         {
             const auto sx = bounds.getWidth() / (float) assets.needle.getWidth();
             const auto sy = bounds.getHeight() / (float) assets.needle.getHeight();
-            const auto pivotX = bounds.getWidth() * pivotXFraction;
-            const auto pivotY = bounds.getHeight() * pivotYFraction;
 
-            // vu-nano-v1's needle is rendered at rest pointing straight up
-            // (0 deg) - the measured tick angle IS the absolute rotation,
-            // no rest-angle delta to subtract (unlike vu-dome-v1).
+            // The needle asset is rendered at rest pointing straight up
+            // (0 deg) with its own pivot dead-centre on its square canvas -
+            // the measured tick angle IS the absolute rotation, no
+            // rest-angle delta to subtract.
             const auto targetDeg = tickAngleDegreesForDb (smoothedDb);
             const auto radians = juce::degreesToRadians (targetDeg);
 
             const auto transform = juce::AffineTransform::scale (sx, sy)
                                         .rotated (radians, pivotX, pivotY);
 
-            // Same Graphics& / same paint() call as the face draw above with
-            // no intervening saveState()/restoreState() or new Graphics
-            // context, so the highResamplingQuality set at the top of this
-            // method already applies here too - drawImageTransformed reads
-            // the context's current interpolation-quality state exactly like
-            // drawImage does (juce_RenderingHelpers.h / CoreGraphicsContext's
-            // setInterpolationQuality persists per-context, not per-call).
             g.drawImageTransformed (assets.needle, transform);
         }
     }

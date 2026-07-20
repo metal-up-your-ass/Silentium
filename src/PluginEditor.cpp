@@ -17,28 +17,29 @@ namespace
     struct KnobLayoutEntry
     {
         const char* parameterId;
-        const char* labelText; // accessible name AND the text engraved on the plate
-        int col;
-        int row;
+        const char* labelText; // accessible name only - the master render carries no baked text labels
+        int centreX1x;
+        int centreY1x;
     };
 
     // Signal-flow-grouped: row 1 is the primary gate shape (Threshold
     // through Range), row 2 is the voicing/refinement controls (Lookahead,
     // the sidechain filters, Knee) - the same grouping ParameterLayout.cpp's
-    // own comments use. The labelText strings must match the labels
-    // render_faceplate_silentium_v2.py bakes into the plate at the same grid
-    // cells (uppercased there; the mixed-case form here is what screen
-    // readers announce).
+    // own comments use. Positions are the master render's own STAGGERED knob
+    // centres (PluginEditorLayout.h's knobRow1X1x/knobRow2X1x, re-derived
+    // from faceplate-metadata.json) - row 2 sits offset ~half a cell right
+    // of row 1, not a straight grid, so each entry carries its own explicit
+    // centre rather than a (col, row) pair.
     constexpr std::array<KnobLayoutEntry, 9> knobLayout {
-        KnobLayoutEntry { ParamIDs::threshold, "Threshold", 0, 0 },
-        KnobLayoutEntry { ParamIDs::attack, "Attack", 1, 0 },
-        KnobLayoutEntry { ParamIDs::hold, "Hold", 2, 0 },
-        KnobLayoutEntry { ParamIDs::release, "Release", 3, 0 },
-        KnobLayoutEntry { ParamIDs::range, "Range", 4, 0 },
-        KnobLayoutEntry { ParamIDs::lookahead, "Lookahead", 0, 1 },
-        KnobLayoutEntry { ParamIDs::scHighpass, "SC HPF", 1, 1 },
-        KnobLayoutEntry { ParamIDs::scLowpass, "SC LPF", 2, 1 },
-        KnobLayoutEntry { ParamIDs::knee, "Knee", 3, 1 },
+        KnobLayoutEntry { ParamIDs::threshold, "Threshold", knobRow1X1x[0], knobRow1Y1x },
+        KnobLayoutEntry { ParamIDs::attack, "Attack", knobRow1X1x[1], knobRow1Y1x },
+        KnobLayoutEntry { ParamIDs::hold, "Hold", knobRow1X1x[2], knobRow1Y1x },
+        KnobLayoutEntry { ParamIDs::release, "Release", knobRow1X1x[3], knobRow1Y1x },
+        KnobLayoutEntry { ParamIDs::range, "Range", knobRow1X1x[4], knobRow1Y1x },
+        KnobLayoutEntry { ParamIDs::lookahead, "Lookahead", knobRow2X1x[0], knobRow2Y1x },
+        KnobLayoutEntry { ParamIDs::scHighpass, "SC HPF", knobRow2X1x[1], knobRow2Y1x },
+        KnobLayoutEntry { ParamIDs::scLowpass, "SC LPF", knobRow2X1x[2], knobRow2Y1x },
+        KnobLayoutEntry { ParamIDs::knee, "Knee", knobRow2X1x[3], knobRow2Y1x },
     };
 
     struct ToggleLayoutEntry
@@ -86,17 +87,13 @@ namespace
 
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
-        // v0.3.2: nano-banana-approved Weston-style VU face + needle
-        // (vu-nano-v1, promoted from Silentium as the reusable Basilica
-        // Audio VU component) - single 1024x1024 tier per layer, no
-        // separate glass decal. The face asset embedded here is the MASKED
-        // derivative (transparent margin outside the measured bezel radius,
-        // see .scaffold/gui-assets/vu-nano-v1/mask_face.py), not the
-        // approved-but-opaque vu-face-no-needle.png the asset pipeline ships
-        // as its reference original.
+        // v0.3.2 (this revision): the dial FACE is baked into the shared
+        // master faceplate background (see PluginEditor.h's docs) - only
+        // the live rotating needle is still a component-owned asset.
+        // assets.face is deliberately left default/invalid, which AnalogMeter::
+        // paint() treats as "skip the face draw entirely".
         basilica::gui::AnalogMeter::Assets assets;
-        assets.face = loadImage (BinaryData::vu_nano_face_1024x1024_png, BinaryData::vu_nano_face_1024x1024_pngSize);
-        assets.needle = loadImage (BinaryData::vu_nano_needle_1024x1024_png, BinaryData::vu_nano_needle_1024x1024_pngSize);
+        assets.needle = loadImage (BinaryData::vuneedlemasterv3_png, BinaryData::vuneedlemasterv3_pngSize);
         return assets;
     }
 }
@@ -105,20 +102,19 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     : juce::AudioProcessorEditor (&processorToEdit),
       audioProcessor (processorToEdit),
       presetBar (initLocalisationThenGetPresetManager (processorToEdit)),
-      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter"),
-      inputLevelMeter (makeMeterAssets(), "Input Level meter")
+      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter", 0.0f),
+      inputLevelMeter (makeMeterAssets(), "Input Level meter", 1.0f)
 {
     setLookAndFeel (&lookAndFeel);
 
-    brandIconImage = loadImage (BinaryData::icon256_png, BinaryData::icon256_pngSize);
+    faceplateImage = loadImage (BinaryData::faceplatesilentiumv3_png, BinaryData::faceplatesilentiumv3_pngSize);
 
     // Creation order below doubles as the accessibility/keyboard focus
     // order (JUCE's default FocusTraverser walks children in z-order,
     // i.e. creation order, when no custom traverser is installed) - kept
     // deliberately matching the visual reading order: preset bar + scale
     // control, meters (GR then Input), knob grid row-by-row, then the two
-    // footer toggles. (The title and all captions are ENGRAVED into the
-    // faceplate art since v0.3.1 - no juce::Labels in this editor.)
+    // footer toggles.
     addAndMakeVisible (presetBar);
 
     // A-05 fix (M3 a11y review): button text/title are set from
@@ -135,13 +131,6 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     addAndMakeVisible (gainReductionMeter);
     addAndMakeVisible (inputLevelMeter);
 
-    // v0.3.2: drop-shadow so the meter housings read as sitting on the
-    // glossy plate rather than pasted flat onto it - see
-    // controlShadowEffect's docs (PluginEditor.h) and applyScaleStep() for
-    // the actual shadow parameters (scale-dependent, set there).
-    gainReductionMeter.setComponentEffect (&controlShadowEffect);
-    inputLevelMeter.setComponentEffect (&controlShadowEffect);
-
     const auto knobStrip1x = loadImage (BinaryData::knob_brass_v2_strip_160px_128f_png,
                                         BinaryData::knob_brass_v2_strip_160px_128f_pngSize);
     const auto knobStrip2x = loadImage (BinaryData::knob_brass_v2_strip_320px_128f_png,
@@ -152,7 +141,6 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
         auto& entry = knobLayout[i];
         knobs[i].slider = std::make_unique<basilica::gui::FilmstripKnob> (knobStrip1x, knobStrip2x, 128);
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
-        knobs[i].slider->setComponentEffect (&controlShadowEffect);
     }
 
     const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
@@ -258,18 +246,6 @@ void SilentiumAudioProcessorEditor::applyScaleStep (int newStepIndex)
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
 
-    // v0.3.2: (re)configure the shared meter/knob drop-shadow for the
-    // current scale step - offset (~2, ~4 px @1x) and radius (~10 px @1x)
-    // per Yves' brief, scaled so the shadow doesn't shrink to invisibility
-    // at 150%/200%. Runs here (not just once at construction) because this
-    // is the single place scale changes take effect, and setShadowProperties()
-    // updates the ONE shared controlShadowEffect instance every meter/knob
-    // already points at via setComponentEffect() - no per-component re-wiring
-    // needed.
-    controlShadowEffect.setShadowProperties (juce::DropShadow (juce::Colours::black.withAlpha (0.45f),
-                                                                (int) std::lround (10.0f * scale),
-                                                                { (int) std::lround (2.0f * scale), (int) std::lround (4.0f * scale) }));
-
     setSize ((int) std::lround ((float) baseEditorWidth * scale),
              (int) std::lround ((float) baseEditorHeight * scale));
 }
@@ -280,7 +256,7 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
 
-    // v0.3.1: the top strip is an integrated dark header band (matching the
+    // The top strip is an integrated dark header band (matching the
     // near-black plate) with a thin warm gold rule under it, not raw black
     // behind floating default-grey buttons - the preset bar's brass buttons
     // and the recessed name display (BasilicaLookAndFeel) sit on this band.
@@ -294,77 +270,22 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     const auto plateBounds = juce::Rectangle<float> (0.0f, (float) topStripHeight1x * scale + (float) topStripGap1x * scale,
                                                       (float) plateWidth1x * scale, (float) plateHeight1x * scale);
 
-    // v0.3.2: JUCE-drawn glossy-black plate, replacing the pre-rendered
-    // faceplate_silentium_v2 photoreal PNG - Yves' verdict was that the
-    // nano-banana render looked wrong, and this vector gloss reads better
-    // with the VU meters/knobs as the sole focal points. Styled after
-    // brand/mock-raytrace-1-frontal.png's three physical-object cues: a
-    // vertical base gradient with a warm rim at the very top, a broad soft
-    // upper-left studio-softbox reflection, and a hairline bright bevel
-    // tracing the rounded outline. The meters/knobs get their own
-    // drop-shadow via controlShadowEffect (see the constructor/
-    // applyScaleStep()) rather than anything painted here.
-    const auto cornerRadius = 20.0f * scale;
-    juce::Path platePath;
-    platePath.addRoundedRectangle (plateBounds, cornerRadius);
-
-    // Base vertical gradient: warm rim highlight confined to the top ~15%
-    // of the plate, near-black base for the rest (ColourGradient clamps to
-    // colour2 past its end point, so nothing further needs doing below the
-    // 15% mark).
-    juce::ColourGradient plateGradient (juce::Colour::fromRGB (28, 26, 24),
-                                        plateBounds.getX(), plateBounds.getY(),
-                                        juce::Colour::fromRGB (12, 12, 14),
-                                        plateBounds.getX(), plateBounds.getY() + plateBounds.getHeight() * 0.15f,
-                                        false);
-    g.setGradientFill (plateGradient);
-    g.fillPath (platePath);
-
-    {
-        // Broad, soft, DIAGONAL reflection in the upper-left quadrant (not a
-        // subtle vignette - a real bright zone that reads as gloss, per
-        // Yves' reference mock). Implemented by drawing a circular radial
-        // gradient through a non-uniform scale+rotate transform, so its true
-        // shape in device space is a flattened, tilted ellipse. Clipped to
-        // the plate's own rounded-rect path first so the transformed fill
-        // can never spill past the plate edge.
-        juce::Graphics::ScopedSaveState reflectionSave (g);
-        g.reduceClipRegion (platePath);
-
-        const auto reflectionCentreX = plateBounds.getX() + plateBounds.getWidth() * 0.24f;
-        const auto reflectionCentreY = plateBounds.getY() + plateBounds.getHeight() * 0.26f;
-        const auto reflectionRadius = plateBounds.getWidth() * 0.36f; // ~30-40% of plate width
-
-        g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi * -0.16f,
-                                                          reflectionCentreX, reflectionCentreY)
-                            .scaled (1.8f, 0.5f, reflectionCentreX, reflectionCentreY));
-
-        juce::ColourGradient reflectionGradient (juce::Colour::fromRGB (255, 244, 224).withAlpha (0.20f),
-                                                  reflectionCentreX, reflectionCentreY,
-                                                  juce::Colours::transparentBlack,
-                                                  reflectionCentreX + reflectionRadius, reflectionCentreY,
-                                                  true);
-        g.setGradientFill (reflectionGradient);
-
-        // Filled rect is generously oversized (relative to the now-tilted/
-        // scaled coordinate space) so the visible, clip-bounded area is
-        // fully covered regardless of the transform above.
-        g.fillRect (plateBounds.expanded (plateBounds.getWidth(), plateBounds.getHeight()));
-    }
-
-    // Hairline outer bevel: a thin bright warm-white line tracing the
-    // plate's rounded outline, catching light like a real polished edge -
-    // drawn last, unclipped, on top of the base gradient and reflection.
-    g.setColour (juce::Colour::fromRGB (238, 227, 203).withAlpha (0.40f));
-    g.strokePath (platePath, juce::PathStrokeType (juce::jmax (1.0f, 1.5f * scale)));
-
-    if (brandIconImage.isValid())
-    {
-        const auto d = (float) roundelRadius1x * 1.7f * scale;
-        const auto cx = (float) roundelCentre1x.x * scale;
-        const auto cy = plateBounds.getY() + (float) roundelCentre1x.y * scale;
-        g.drawImage (brandIconImage, juce::Rectangle<float> (d, d).withCentre ({ cx, cy }));
-    }
+    // v0.3.2 (this revision): the ENTIRE plate - obsidian plate, both VU
+    // dials, tube-vent grilles, all 9 knobs, both toggles, and the rose
+    // emblem - is a single photoreal master render
+    // (resources/gui/faceplate-silentium-v3.png), drawn scaled-to-fit here.
+    // Replaces every previous JUCE-drawn plate layer (glossy-black base
+    // gradient, upper-left softbox reflection, hairline bevel, header
+    // roundel/brand icon) - all of that is now baked into the art itself,
+    // and painting a synthetic gradient/shadow/bevel ON TOP of a photoreal
+    // render is exactly the "Frankenstein" mismatch Yves rejected.
+    // RectanglePlacement::centred preserves the master's own aspect ratio
+    // and letterboxes rather than stretching if plateBounds' aspect ever
+    // drifts from the master's (it does not in the current @1x table -
+    // plateHeight1x was chosen to match masterCanvasHeightPx / masterCanvasWidthPx
+    // exactly - this is purely defensive for future edits).
+    if (faceplateImage.isValid())
+        g.drawImage (faceplateImage, plateBounds, juce::RectanglePlacement::centred, false);
 }
 
 void SilentiumAudioProcessorEditor::resized()
@@ -379,63 +300,48 @@ void SilentiumAudioProcessorEditor::resized()
     presetBar.setBounds (topStrip.reduced (0, s (2)));
 
     // Everything below is expressed in plate-local coordinates (the base
-    // @1x table above), then offset by the top strip + gap and scaled.
-    const auto toPlateRect = [&] (juce::Rectangle<int> plateLocal)
+    // @1x table in PluginEditorLayout.h), then offset by the top strip +
+    // gap and scaled.
+    //
+    // Each AnalogMeter's bounds are a square CENTRED EXACTLY ON ITS PIVOT
+    // (the baked hub rivet in the master render) - see
+    // PluginEditorLayout.h's meterHalfSize1x/meterLPivot1x/meterRPivot1x and
+    // AnalogMeter.h's "meter_component_convention" docs. This is what makes
+    // the needle's pivot fraction always (0.5, 0.5) regardless of which
+    // meter.
+    const auto toPlatePoint = [&] (juce::Point<int> plateLocal)
     {
-        return juce::Rectangle<int> (s (plateLocal.getX()),
-                                     s (topStripHeight1x + topStripGap1x) + s (plateLocal.getY()),
-                                     s (plateLocal.getWidth()),
-                                     s (plateLocal.getHeight()));
+        return juce::Point<int> (s (plateLocal.x),
+                                 s (topStripHeight1x + topStripGap1x) + s (plateLocal.y));
     };
 
-    // vu-nano-v1's visible bezel spans contentFractionOfCanvas (~79%) of its
-    // canvas - expand each meter's bounds around its bay's centre so the
-    // VISIBLE dial fills the engraved seat exactly. The margin is
-    // transparent (see mask_face.py) and mouse-transparent.
-    const auto expandMeterBounds = [] (juce::Rectangle<int> bay)
-    {
-        const auto factor = 1.0f / basilica::gui::AnalogMeter::contentFractionOfCanvas;
-        return bay.withSizeKeepingCentre ((int) std::lround ((float) bay.getWidth() * factor),
-                                          (int) std::lround ((float) bay.getHeight() * factor));
-    };
+    const auto meterHalf = s (meterHalfSize1x);
+    gainReductionMeter.setBounds (juce::Rectangle<int> (meterHalf * 2, meterHalf * 2).withCentre (toPlatePoint (meterLPivot1x)));
+    inputLevelMeter.setBounds (juce::Rectangle<int> (meterHalf * 2, meterHalf * 2).withCentre (toPlatePoint (meterRPivot1x)));
 
-    gainReductionMeter.setBounds (expandMeterBounds (toPlateRect (meterLBay1x)));
-    inputLevelMeter.setBounds (expandMeterBounds (toPlateRect (meterRBay1x)));
-
-    const auto controlBay = toPlateRect (controlBay1x);
-    const auto cellW = controlBay.getWidth() / gridCols;
-    const auto cellH = controlBay.getHeight() / gridRows;
+    // Knobs: explicit STAGGERED centres baked into the master render (row 2
+    // offset ~half a cell right of row 1) - see PluginEditorLayout.h's
+    // knobRow1X1x/knobRow2X1x. The interactive FilmstripKnob is sized
+    // identically to the baked knob's own diameter (knobDiameter1x,
+    // measured from faceplate-metadata.json) so it exactly covers the baked
+    // art underneath with no visible seam/mismatch.
     const auto knobDiam = s (knobDiameter1x);
-    const auto labelH = s (knobLabelHeight1x);
 
     for (size_t i = 0; i < knobLayout.size(); ++i)
     {
         auto& entry = knobLayout[i];
-        const auto cellX = controlBay.getX() + entry.col * cellW;
-        const auto cellY = controlBay.getY() + entry.row * cellH;
-
-        // The top labelH of each cell belongs to the ENGRAVED label baked
-        // into the faceplate art (see PluginEditorLayout.h's contract with
-        // the Blender script) - the knob is centred in the remaining space,
-        // exactly as when the labels were still juce::Labels, so the plate
-        // art keeps lining up.
         knobs[i].slider->setBounds (juce::Rectangle<int> (knobDiam, knobDiam)
-                                        .withCentre ({ cellX + cellW / 2, cellY + labelH + (cellH - labelH) / 2 }));
+                                        .withCentre (toPlatePoint ({ entry.centreX1x, entry.centreY1x })));
     }
 
-    const auto auxBay = toPlateRect (auxBay1x);
+    // Two footer toggles (Duck, Listen), explicit centres, sized identically
+    // to the baked housing (toggleSize1x).
     const auto toggleSize = s (toggleSize1x);
-    const auto togglePairWidth = auxBay.getWidth() / (int) toggleLayout.size();
 
     for (size_t i = 0; i < toggleLayout.size(); ++i)
     {
-        const auto pairX = auxBay.getX() + (int) i * togglePairWidth;
-
-        // Toggle centred at pairX + toggleSize1x, matching the engraved
-        // DUCK/LISTEN labels' positions on the plate (which sit just right
-        // of each housing - see render_faceplate_silentium_v2.py).
         toggles[i].button->setBounds (juce::Rectangle<int> (toggleSize, toggleSize)
-                                          .withCentre ({ pairX + toggleSize, auxBay.getCentreY() }));
+                                          .withCentre (toPlatePoint ({ toggleX1x[i], toggleY1x })));
     }
 }
 
