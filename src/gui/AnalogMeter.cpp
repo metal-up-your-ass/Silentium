@@ -29,6 +29,28 @@ namespace
         Tick { -5.0f, 1.58f }, Tick { -3.0f, 9.31f }, Tick { 0.0f, 18.02f },
         Tick { 1.0f, 25.47f }, Tick { 2.0f, 32.92f }, Tick { 3.0f, 40.39f }
     };
+
+    // Needle FILMSTRIP manifest (v0.3.5) - copied verbatim from
+    // resources/gui/needle-filmstrip-v1.json's provenance record, hardcoded
+    // here per Yves' brief rather than parsed from that .json at runtime
+    // (paint()'s frame-index lookup below is real-time-safe and must not
+    // touch the filesystem). A vertical stack of needleFrameCount already-
+    // rotated needleFrameW x needleFrameH frames, ascending angle order,
+    // each frame's own pivot at its exact centre (0.5, 0.5) - so drawing a
+    // frame into a square destination box centred on this component's
+    // pivot reproduces the old single-image AffineTransform rotation
+    // exactly, without any live rotation.
+    constexpr int needleFrameCount = 96;
+    constexpr int needleFrameW = 480;
+    constexpr int needleFrameH = 480;
+    constexpr float needleMinDeg = -32.0f;
+    [[maybe_unused]] constexpr float needleMaxDeg = 44.0f; // == needleMinDeg + (needleFrameCount - 1) * needleDegPerFrame, kept for provenance/documentation parity with the .json manifest
+    constexpr float needleDegPerFrame = 0.8f;
+    [[maybe_unused]] constexpr int needleRestFrameIndex = 40; // the filmstrip's own "straight up" pose - not consulted at runtime (frame index is always derived from the live angle), kept for provenance
+    constexpr float needleHubXFraction = 0.5f;
+    constexpr float needleHubYFraction = 0.5f;
+
+    static_assert (needleRestFrameIndex >= 0 && needleRestFrameIndex < needleFrameCount);
 }
 
 namespace basilica::gui
@@ -191,48 +213,40 @@ namespace basilica::gui
             g.fillRect (bounds);
         }
 
-        // 2. Peak LED (upper-left of the dial) - alpha-animated by the
-        // peak-hold/fade state machine in timerCallback(), fully skipped
-        // (no draw call at all) when its alpha is at/near zero so the
-        // asset's own baked halo never leaves a faint always-on ring.
-        if (assets.led.isValid() && ledAlpha > 0.001f)
-        {
-            const auto ledCx = pivotX + ledCentreOffsetXFraction * halfSize;
-            const auto ledCy = pivotY + ledCentreOffsetYFraction * halfSize;
-            const auto ledDrawSize = ledDiameterFraction * (2.0f * halfSize) / ledContentDiameterFraction;
+        // 2. Peak LED - v0.3.6: moved OUT of this component entirely. Per
+        // Yves' master-03 reference the LED sits ON THE PLATE, outside this
+        // dial's own bezel/bounds (upper-left) - PluginEditor now draws it
+        // as its own overlay at the measured plate-level centre (see
+        // PluginEditorLayout.h's ledLCentre1x/ledRCentre1x and
+        // PluginEditor.cpp's paint()), reading this component's ledAlpha via
+        // peakLedAlpha() each tick. The peak-hold/fade state machine itself
+        // (ledAlpha/ledHoldRemainingSeconds, driven from timerCallback()/
+        // setImmediateDbForPreview() below) still lives here - it owns the
+        // dB data, only the DRAW moved.
 
-            juce::Graphics::ScopedSaveState saveState (g);
-            g.setOpacity (ledAlpha);
-            g.drawImage (assets.led,
-                        juce::Rectangle<float> (ledDrawSize, ledDrawSize).withCentre ({ ledCx, ledCy }));
-        }
-
-        // 3. Rotating needle.
+        // 3. Needle - v0.3.5 FILMSTRIP lookup (replaces the single-image
+        // live AffineTransform rotation): the needle asset is now a
+        // vertical stack of already-rotated frames (see the anonymous
+        // namespace's needleFrame* manifest constants above), so paint()
+        // only has to pick the nearest frame for the current angle and
+        // blit it - no rotation math at draw time. Each frame's own pivot
+        // sits at its exact centre, so a square destination box centred on
+        // this component's pivot reproduces the old rotation exactly.
         if (assets.needle.isValid())
         {
             const auto needleDrawSize = needleSizeFraction * juce::jmin (bounds.getWidth(), bounds.getHeight());
-            const auto sx = needleDrawSize / (float) assets.needle.getWidth();
-            const auto sy = needleDrawSize / (float) assets.needle.getHeight();
 
-            // The needle asset is rendered at rest pointing straight up
-            // (0 deg) with its own pivot dead-centre on its square canvas -
-            // the measured tick angle IS the absolute rotation, no
-            // rest-angle delta to subtract. drawImageTransformed scales
-            // from the image's own (0,0) origin, so translate the pivot to
-            // the origin first, scale/rotate, then translate back out to
-            // this component's actual pivot position.
             const auto targetDeg = tickAngleDegreesForDb (smoothedDb);
-            const auto radians = juce::degreesToRadians (targetDeg);
+            const auto frameIndex = juce::jlimit (0, needleFrameCount - 1,
+                                                juce::roundToInt ((targetDeg - needleMinDeg) / needleDegPerFrame));
 
-            const auto imageHalfW = (float) assets.needle.getWidth() * 0.5f;
-            const auto imageHalfH = (float) assets.needle.getHeight() * 0.5f;
+            const auto destX = juce::roundToInt (pivotX - needleHubXFraction * needleDrawSize);
+            const auto destY = juce::roundToInt (pivotY - needleHubYFraction * needleDrawSize);
+            const auto destSize = juce::roundToInt (needleDrawSize);
 
-            const auto transform = juce::AffineTransform::translation (-imageHalfW, -imageHalfH)
-                                        .scaled (sx, sy)
-                                        .rotated (radians)
-                                        .translated (pivotX, pivotY);
-
-            g.drawImageTransformed (assets.needle, transform);
+            g.drawImage (assets.needle,
+                        destX, destY, destSize, destSize,
+                        0, frameIndex * needleFrameH, needleFrameW, needleFrameH);
         }
     }
 

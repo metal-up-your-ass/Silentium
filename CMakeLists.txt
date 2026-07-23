@@ -124,14 +124,32 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     resources/gui/master-05.png
     resources/gui/master-06.png
     resources/gui/master-glow-dim.png
-    # Rotating VU needle overlay (unchanged since v0.3.2/v0.3.3 - see
-    # AnalogMeter.cpp's docs for the dB->angle tick table's own provenance).
-    resources/gui/vu-needle-master-v3.png
-    # Peak-LED overlay (unchanged since v0.3.3 - master-05 bakes NO LED, so
-    # this alpha-modulated overlay stays; alpha = max(R,G,B) of the source
-    # pixel, a true emissive glow asset that draws correctly with ordinary
-    # SrcOver compositing).
-    resources/gui/led-v4.png
+    # Rotating VU needle overlay - v0.3.5 replaces the single-image
+    # AffineTransform-rotated needle (vu-needle-master-v3.png, still on disk
+    # but no longer embedded) with a pre-rendered FILMSTRIP: a vertical
+    # stack of 96 already-rotated 480x480 frames (-32.0deg..+44.0deg,
+    # 0.8deg/frame, rest/0deg = frame 40), each with its pivot at the
+    # frame's exact centre. AnalogMeter::paint() now does a frame-index
+    # lookup + straight source-rect blit instead of a live rotation - see
+    # AnalogMeter.cpp's docs for the manifest constants (hardcoded there,
+    # not parsed from resources/gui/needle-filmstrip-v1.json at runtime;
+    # that .json ships alongside the PNG purely for provenance).
+    resources/gui/needle-filmstrip-v1.png
+    # Peak-LED overlay - v0.3.6 replaces led-v4.png (a hand-authored/
+    # generated asset, drawn INSIDE the dial over the tick scale - wrong
+    # position AND provenance per Yves' master-03 reference) with
+    # led-master-diff.png: a clean 64x64 RGBA sprite EXTRACTED directly from
+    # master-03-raw.png's own baked lit LED pixels (master-03 is the one
+    # master render generation with both LEDs lit; master-05, this build's
+    # faceplate baseline, has neither) via a registration + abs-diff
+    # technique (analysis/led_diff/{register,extract,finalize}.py in the
+    # gui-pipeline scratch dir, mirroring analysis/needle_diff/'s proven
+    # needle-extraction approach) - no hand-drawing/generation involved, per
+    # the suite's master-fidelity rule. led-v4.png stays on disk
+    # (unreferenced) rather than being deleted here. Drawn by PluginEditor
+    # (not AnalogMeter - the LED sits on the PLATE outside each dial's own
+    # bezel, see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs).
+    resources/gui/led-master-diff.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
     # for every JUCE-drawn text surface.
     resources/fonts/EBGaramond-Regular.ttf

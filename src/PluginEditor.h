@@ -95,6 +95,16 @@ private:
     // just those regions each tick, rather than the whole plate.
     juce::Rectangle<int> ventGlowRepaintBounds;
 
+    // v0.3.6: the two peak-LED regions' own on-screen bounds (recomputed in
+    // resized(), same convention as ventGlowRepaintBounds above) - the LED
+    // draw itself lives in this editor's paint() now (see
+    // PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs for why it moved
+    // out of AnalogMeter), so this editor's own timerCallback() must
+    // explicitly repaint these two small regions each tick to animate the
+    // peak-hold/fade alpha AnalogMeter::peakLedAlpha() reports.
+    juce::Rectangle<int> ledLRepaintBounds;
+    juce::Rectangle<int> ledRRepaintBounds;
+
     SilentiumAudioProcessor& audioProcessor;
 
     basilica::gui::BasilicaLookAndFeel lookAndFeel;
@@ -107,6 +117,15 @@ private:
     juce::Image masterBaseline;
     juce::Image masterToggleDown;
     juce::Image masterGlowDim;
+
+    // v0.3.6: the peak-LED sprite (led-master-diff.png, extracted directly
+    // from master-03-raw.png's own baked lit LEDs - see
+    // PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs) - this editor's
+    // own paint() draws it twice (once per meter) at the measured plate-
+    // level centres, reading each AnalogMeter's peakLedAlpha() for the
+    // opacity. No longer owned by AnalogMeter (see that class's v0.3.6 docs
+    // for why).
+    juce::Image ledImage;
 
     basilica::presets::PresetBar presetBar;
     juce::TextButton scaleButton;

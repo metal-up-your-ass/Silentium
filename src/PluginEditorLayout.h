@@ -139,6 +139,47 @@ namespace slnt::layout
     const juce::Rectangle<int> ventLBankBounds1x { 106, 355, 214 - 106, 487 - 355 };
     const juce::Rectangle<int> ventRBankBounds1x { 686, 355, 794 - 686, 487 - 355 };
 
+    // Peak LEDs: a SMALL red indicator lamp sitting ON THE PLATE, OUTSIDE
+    // each VU dial's brass bezel, at its upper-left - NOT inside the dial
+    // face (a prior revision incorrectly drew a large LED inside the dial,
+    // over the tick scale; rejected by Yves against master-03's own
+    // reference look). This is why these live here as their own top-level
+    // overlay geometry rather than inside AnalogMeter's own bounds (which
+    // only cover the dial face itself, see PluginEditor.cpp's paint() for
+    // the draw call).
+    //
+    // Measured DIRECTLY from master-03-raw.png (.scaffold/gui-assets/
+    // faceplate-silentium-v3/master-03-raw.png, 1264x848 - the one master
+    // render generation that happens to have BOTH peak LEDs lit; master-05,
+    // this file's own baseline, has neither) by
+    // analysis/led_diff/{register,extract}.py: register master-03 onto
+    // master-05 per LED (small-window median-SSD sub-pixel search, mirroring
+    // analysis/needle_diff/register.py's technique), abs-diff the two
+    // (identical plate everywhere except the lit LED + its soft halo), then
+    // a diff-magnitude-weighted centroid (3 passes, each pass re-centring a
+    // circular ROI) for the centre and an azimuthal-mean radial profile for
+    // the core/halo diameters (see extraction_results.json for the raw
+    // numbers). Centres below are master-03's own measured centres scaled by
+    // plateWidth1x / masterCanvasWidthPx (900/1264, this file's own top-of-
+    // file scale factor) down to this @1x table; ledCoreDiameter1x is the
+    // bright bulb DISC only (radius where the azimuthal-mean diff magnitude
+    // first drops below half its peak value), NOT the much larger soft halo
+    // - the halo is left to overflow past this nominal draw diameter
+    // naturally via the led-master-diff.png asset's own alpha (see
+    // PluginEditor.cpp's ledContentDiameterFraction docs), matching the old
+    // AnalogMeter-owned LED's same convention.
+    //
+    // Both LEDs were independently measured (left core diameter 18.0 master
+    // px, right 19.0 master px - agree to within rounding); the LEFT LED is
+    // the one actually extracted into led-master-diff.png (analysis/
+    // led_diff/finalize.py), the right is used only as an appearance cross-
+    // check (see that revision's handoff notes) - both meters draw the SAME
+    // asset at these two independently-measured centres, per the suite's
+    // mirrored-duplicate dial design.
+    const juce::Point<float> ledLCentre1x { 121.93f, 109.87f };
+    const juce::Point<float> ledRCentre1x { 561.79f, 110.81f };
+    constexpr float ledCoreDiameter1x = 12.82f;
+
     constexpr int topStripHeight1x = 32;
     constexpr int topStripGap1x = 6;
     constexpr int scaleButtonWidth1x = 64;

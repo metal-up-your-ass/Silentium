@@ -5,23 +5,35 @@
 #include <atomic>
 
 // Suite-reusable analog-style VU meter: draws an incandescent pilot-lamp
-// glow, a peak LED, and the rotating needle - all composited live on top of
-// the baked dial face already present in Silentium's faceplate background
-// (see PluginEditor.cpp).
+// glow and the rotating needle, composited live on top of the baked dial
+// face already present in Silentium's faceplate background (see
+// PluginEditor.cpp). Also OWNS the peak-hold/fade state machine for the
+// peak LED (it owns the dB data), even though - as of v0.3.6 - the LED's own
+// IMAGE DRAW lives in PluginEditor instead (see peakLedAlpha() below and
+// this header's Assets docs for why).
 //
-// v0.3.4 (this revision): MASTER-05 BASELINE ARCHITECTURE, per Yves' final
-// art direction, superseding v0.3.3's "true component assembly" (every
-// visual element as its own standalone master-reference asset). master-05
-// bakes BOTH VU dial faces directly into the single faceplate image (ticks,
-// "VU" wordmark, red zone, hub/anchor bar, brass bezel - everything except
-// the needle and the peak LED, which stay live overlays) - so this
-// component no longer owns or draws a face image at all. The pivot fraction
-// remains a configurable constructor parameter (the baked face's own hub
-// does not sit at the exact centre of the component's bounds - measured
-// ~47.8%/66.6% across/down, see PluginEditorLayout.h's meterPivotXFraction/
-// meterPivotYFraction docs) - PluginEditorLayout.h/PluginEditor.cpp compute
-// this component's bounds directly from the master-05 measurements so the
-// needle/LED/glow land correctly on the already-baked dial.
+// v0.3.4: MASTER-05 BASELINE ARCHITECTURE, per Yves' final art direction,
+// superseding v0.3.3's "true component assembly" (every visual element as
+// its own standalone master-reference asset). master-05 bakes BOTH VU dial
+// faces directly into the single faceplate image (ticks, "VU" wordmark, red
+// zone, hub/anchor bar, brass bezel - everything except the needle and the
+// peak LED, which stay live overlays) - so this component no longer owns or
+// draws a face image at all. The pivot fraction remains a configurable
+// constructor parameter (the baked face's own hub does not sit at the exact
+// centre of the component's bounds - measured ~47.8%/66.6% across/down, see
+// PluginEditorLayout.h's meterPivotXFraction/meterPivotYFraction docs) -
+// PluginEditorLayout.h/PluginEditor.cpp compute this component's bounds
+// directly from the master-05 measurements so the needle/glow land correctly
+// on the already-baked dial.
+//
+// v0.3.6: the peak LED moved OUT of this component's own draw entirely.
+// Per Yves' master-03 reference the LED is a SMALL lamp sitting ON THE
+// PLATE, outside each dial's bezel (upper-left) - not inside the dial face
+// this component's own bounds cover. A prior revision incorrectly drew a
+// large LED inside the dial over the tick scale; PluginEditor now owns the
+// LED asset + draw call at the correct plate-level position (see
+// PluginEditorLayout.h's ledLCentre1x/ledRCentre1x), reading this
+// component's own ledAlpha via peakLedAlpha() each tick.
 namespace basilica::gui
 {
     class AnalogMeter : public juce::Component, private juce::Timer
@@ -29,13 +41,21 @@ namespace basilica::gui
     public:
         struct Assets
         {
+            // v0.3.5: holds the pre-rendered needle FILMSTRIP (a vertical
+            // stack of already-rotated frames), not a single needle image -
+            // see AnalogMeter.cpp's anonymous-namespace manifest constants
+            // and paint()'s frame-index lookup. Kept named "needle" (not
+            // renamed to e.g. needleStrip) to minimise churn at this call
+            // site's one caller (PluginEditor.cpp's makeMeterAssets()).
             juce::Image needle;
 
-            // Small red peak-indicator LED (with its own soft halo baked
-            // in) - alpha 0 normally, flashed to alpha 1 by the peak
-            // detector below (see setTargetDb()/timerCallback()). May be
-            // left default/invalid (skips the LED entirely).
-            juce::Image led;
+            // v0.3.6: the peak-LED IMAGE is no longer owned/drawn here - per
+            // Yves' master-03 reference, the LED sits on the PLATE outside
+            // this component's own dial-face bounds (upper-left of the
+            // bezel), so PluginEditor now owns the LED asset + draw call
+            // (see PluginEditor.cpp's paint()) while this component still
+            // owns the peak-hold/fade STATE MACHINE (it owns the dB data -
+            // see peakLedAlpha() below).
         };
 
         // pivotXFraction/pivotYFraction: where the needle/glow/LED pivot
@@ -95,6 +115,14 @@ namespace basilica::gui
         // component's own timerCallback() uses.
         static constexpr float peakLedThresholdDb = 0.0f;
 
+        // v0.3.6: the peak-hold/fade state machine (timerCallback()/
+        // setImmediateDbForPreview()) still lives here (it owns the dB
+        // data), but the LED image draw moved to PluginEditor (see this
+        // component's own Assets docs above) - this getter is how the
+        // editor reads the current alpha each paint() to draw its own LED
+        // overlay in sync with this meter's peak state.
+        float peakLedAlpha() const noexcept { return ledAlpha; }
+
     private:
         // A-07 fix (M3 a11y review): read-only accessibility value
         // interface, so AT users can query the current ballistic-smoothed
@@ -126,22 +154,6 @@ namespace basilica::gui
         static constexpr float glowRadiusFraction = 0.62f;
         static constexpr float glowAlphaCentre = 0.38f;
         static constexpr float glowAlphaMid = 0.16f;
-
-        // Peak LED geometry: offset from the pivot (fraction of the
-        // component half-size, same convention as the glow above) - "upper
-        // left of the dial" per Yves' brief - and drawn diameter (fraction
-        // of the component's own full size, since the LED asset is a small
-        // fixed-size indicator rather than something that should scale with
-        // the dial's overall proportions the way the glow does).
-        static constexpr float ledCentreOffsetXFraction = -0.43f;
-        static constexpr float ledCentreOffsetYFraction = -0.55f;
-        static constexpr float ledDiameterFraction = 0.14f;
-        // Native content geometry inside led-v4.png's 1024x1024 canvas
-        // (measured: the bright bulb sphere, ignoring its much larger soft
-        // halo which is fine/desirable to let overflow past the nominal
-        // draw diameter) - see PluginEditor.cpp's asset docs for the same
-        // family of constants for the other master-ref assets.
-        static constexpr float ledContentDiameterFraction = 315.0f / 1024.0f;
 
         // Peak-hold + linear fade state machine (Yves' brief: 200ms full-
         // alpha hold once the signal drops back below 0dB, then a 500ms

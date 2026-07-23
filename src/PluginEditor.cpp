@@ -7,6 +7,8 @@
 
 #include <BinaryData.h>
 
+#include <utility>
+
 namespace
 {
     // Base (@1x, 100% scale) faceplate geometry lives in PluginEditorLayout.h
@@ -96,14 +98,37 @@ namespace
 
     // v0.3.4: both VU dial faces are now BAKED into master-05.png (see
     // AnalogMeter.h's docs) - AnalogMeter's Assets no longer carries a face
-    // image, only the live overlay elements (needle, LED).
+    // image, only the live overlay elements it still owns the draw for.
+    //
+    // v0.3.5: assets.needle now holds the pre-rendered needle FILMSTRIP
+    // (needle-filmstrip-v1.png), not the old single-image
+    // vu-needle-master-v3.png - see AnalogMeter.cpp's frame-index lookup.
+    //
+    // v0.3.6: no more assets.led - the peak LED's own image draw moved to
+    // this editor (ledImage, loaded in the constructor below, drawn by
+    // paint() - see AnalogMeter.h's v0.3.6 docs for why); AnalogMeter now
+    // only owns the peak-hold/fade STATE MACHINE, read back via
+    // AnalogMeter::peakLedAlpha().
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
         basilica::gui::AnalogMeter::Assets assets;
-        assets.needle = loadImage (BinaryData::vuneedlemasterv3_png, BinaryData::vuneedlemasterv3_pngSize);
-        assets.led = loadImage (BinaryData::ledv4_png, BinaryData::ledv4_pngSize);
+        assets.needle = loadImage (BinaryData::needlefilmstripv1_png, BinaryData::needlefilmstripv1_pngSize);
         return assets;
     }
+
+    // Peak-LED sprite geometry inside led-master-diff.png's own 64x64
+    // canvas: ledContentDiameterFraction is the bright bulb CORE disc's own
+    // fraction of that canvas (18.0 master-03 px core / 64px canvas -
+    // measured by analysis/led_diff/extract.py, see
+    // PluginEditorLayout.h's ledCoreDiameter1x docs for the master-px
+    // measurement this derives from), NOT the much larger soft halo (which
+    // is deliberately left to overflow past the nominal draw size computed
+    // below, via the asset's own alpha - same convention the old
+    // AnalogMeter-owned LED used for led-v4.png). ledImageDrawSize1x is the
+    // WHOLE image's own draw diameter @1x, back-derived so the CORE lands
+    // at exactly ledCoreDiameter1x on screen.
+    constexpr float ledContentDiameterFraction = 18.0f / 64.0f;
+    constexpr float ledImageDrawSize1x = ledCoreDiameter1x / ledContentDiameterFraction;
 
     // Converts a layout-table rectangle (@1x plate-local units, the
     // PluginEditorLayout.h table's own coordinate frame) into the matching
@@ -143,6 +168,7 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     masterBaseline = loadImage (BinaryData::master05_png, BinaryData::master05_pngSize);
     masterToggleDown = loadImage (BinaryData::master06_png, BinaryData::master06_pngSize);
     masterGlowDim = loadImage (BinaryData::masterglowdim_png, BinaryData::masterglowdim_pngSize);
+    ledImage = loadImage (BinaryData::ledmasterdiff_png, BinaryData::ledmasterdiff_pngSize);
 
     ventGlowStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     ventGlowSmoothedInputDb = audioProcessor.getInputLevelDb();
@@ -383,11 +409,40 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
-    // (VU needle/LED/glow overlays are separate AnalogMeter child
-    // components, drawn after this method returns - see resized() for their
-    // bounds. Everything else - rose flourish, screws, knob discs, both VU
-    // faces, tube-vent structure - stays BAKED in master-05, no draw calls
-    // for any of it.)
+    // 4. Peak LEDs (v0.3.6) - a SMALL red lamp sitting ON THE PLATE, outside
+    // each dial's own bezel, at its upper-left (per Yves' master-03
+    // reference - see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs
+    // for the extraction/measurement this position comes from). Drawn HERE,
+    // not by the AnalogMeter children (whose own bounds only cover the dial
+    // face itself, well short of this position) - alpha comes from each
+    // meter's own peak-hold/fade state machine via peakLedAlpha(), skipped
+    // entirely (no draw call) at/near zero, same convention the old
+    // AnalogMeter-owned LED draw used.
+    if (ledImage.isValid())
+    {
+        const auto drawSize = s (ledImageDrawSize1x);
+
+        for (const auto& entry : { std::pair { ledLCentre1x, gainReductionMeter.peakLedAlpha() },
+                                    std::pair { ledRCentre1x, inputLevelMeter.peakLedAlpha() } })
+        {
+            const auto alpha = entry.second;
+            if (alpha <= 0.001f)
+                continue;
+
+            const auto centre = juce::Point<float> (plateOrigin.x + s (entry.first.x),
+                                                     plateOrigin.y + s (entry.first.y));
+
+            juce::Graphics::ScopedSaveState saveState (g);
+            g.setOpacity (alpha);
+            g.drawImage (ledImage, juce::Rectangle<float> (drawSize, drawSize).withCentre (centre));
+        }
+    }
+
+    // (VU needle/glow overlays are separate AnalogMeter child components,
+    // drawn after this method returns - see resized() for their bounds.
+    // Everything else - rose flourish, screws, knob discs, both VU faces,
+    // tube-vent structure - stays BAKED in master-05, no draw calls for any
+    // of it.)
 }
 
 void SilentiumAudioProcessorEditor::resized()
@@ -410,10 +465,12 @@ void SilentiumAudioProcessorEditor::resized()
                                  s (topStripHeight1x + topStripGap1x) + s (plateLocal.y));
     };
 
-    // Each AnalogMeter's bounds are sized/positioned so its needle/LED/glow
+    // Each AnalogMeter's bounds are sized/positioned so its needle/glow
     // overlays land on the plate's baked dial faces (see
     // PluginEditorLayout.h's meterComponentSize1x/meterLTopLeft1x/
-    // meterRTopLeft1x docs).
+    // meterRTopLeft1x docs). The peak LEDs are NOT inside these bounds (see
+    // ledLRepaintBounds/ledRRepaintBounds below) - they sit on the plate
+    // outside each dial's bezel and are drawn/repainted independently.
     const auto meterSize = s (meterComponentSize1x);
     gainReductionMeter.setBounds (toPlatePoint (meterLTopLeft1x).x, toPlatePoint (meterLTopLeft1x).y, meterSize, meterSize);
     inputLevelMeter.setBounds (toPlatePoint (meterRTopLeft1x).x, toPlatePoint (meterRTopLeft1x).y, meterSize, meterSize);
@@ -450,6 +507,21 @@ void SilentiumAudioProcessorEditor::resized()
     };
 
     ventGlowRepaintBounds = toPlateRect (ventLBankBounds1x).getUnion (toPlateRect (ventRBankBounds1x)).expanded (s (4));
+
+    // v0.3.6: the two peak-LED regions' own repaint bounds - a square box
+    // matching paint()'s own draw rect (centre +/- half the LED image's own
+    // draw size, which already contains the full soft halo via the asset's
+    // own alpha - see ledImageDrawSize1x's docs above), plus a couple of
+    // scaled px of margin for anti-aliasing at the sprite's own edge.
+    const auto toLedRect = [&] (juce::Point<float> centre1x)
+    {
+        const auto drawSize = juce::roundToInt ((ledImageDrawSize1x + 4.0f) * scale);
+        const auto centrePx = toPlatePoint ({ (int) std::lround (centre1x.x), (int) std::lround (centre1x.y) });
+        return juce::Rectangle<int> (drawSize, drawSize).withCentre (centrePx);
+    };
+
+    ledLRepaintBounds = toLedRect (ledLCentre1x);
+    ledRRepaintBounds = toLedRect (ledRCentre1x);
 }
 
 void SilentiumAudioProcessorEditor::timerCallback()
@@ -474,6 +546,16 @@ void SilentiumAudioProcessorEditor::timerCallback()
     ventGlowMix = juce::jlimit (0.0f, 1.0f, baseMix * flicker);
 
     repaint (ventGlowRepaintBounds);
+
+    // v0.3.6: the peak LEDs are drawn by THIS editor's own paint() now (see
+    // that method's docs), not by the AnalogMeter children - their alpha
+    // animates every tick via each meter's own peak-hold/fade state machine
+    // even when the ballistic-smoothed needle reading itself is settled, so
+    // this editor must explicitly repaint their two small regions each tick
+    // too (partial repaints, same convention as ventGlowRepaintBounds
+    // above - never a full-plate repaint).
+    repaint (ledLRepaintBounds);
+    repaint (ledRRepaintBounds);
 }
 
 void SilentiumAudioProcessorEditor::setVentGlowMixForPreview (float t) noexcept
