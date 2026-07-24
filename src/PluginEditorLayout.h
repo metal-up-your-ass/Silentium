@@ -57,15 +57,54 @@ namespace slnt::layout
     // in prior revisions. Measured: outer brass-bezel bounding box, master
     // px centre (321.0, 292.5)/(942.0, 292.0), diameter ~358px (mean of the
     // two meters' independently-measured diameters, which agree to within
-    // 0.5px). meterPivotXFraction/meterPivotYFraction locate the needle-
-    // pivot hub (the hex hub on the anchor bar) as a fraction of this box -
-    // measured directly (HoughCircles on the right meter's own face bbox,
-    // cross-checked by eye against the source render) rather than assumed;
-    // both meters share this single fraction pair (mirrored-duplicate dial
-    // design).
+    // 0.5px).
     constexpr int meterComponentSize1x = 255;
     const juce::Point<int> meterLTopLeft1x { 101, 81 };
     const juce::Point<int> meterRTopLeft1x { 543, 81 };
+
+    // 2026-07-23 pivot correction: meterPivotXFraction/meterPivotYFraction
+    // below (0.478/0.666, HoughCircles-on-the-right-meter-only estimate,
+    // shared by both dials) predate the accurate TRUE hub-pivot measurement
+    // and put the live needle's rotation centre a few px off each dial's
+    // real hub, causing a visible base wobble even though the filmstrip
+    // frames themselves are correctly centred on their own pivot. Superseded
+    // by the per-meter fractions below, independently fit per dial from
+    // .scaffold/gui-assets/faceplate-silentium-v3/analysis/needle_diff/
+    // (register.py registers master-03-raw.png, WITH baked needles, onto
+    // master-05.png, WITHOUT needles, per dial; hub_fit.py fits the hub-cap
+    // shadow-disc RING centre via ray-cast edge detection + Kasa circle fit
+    // on master-05's own clean/unoccluded hub; a per-dial axis line is fit
+    // from 500+ high-confidence needle-blade diff pixels and the pivot is
+    // taken as that axis line projected onto the SAME dial's own hub-ring
+    // centre - see finalize_pivot.py's docstring for why the alternative
+    // cross-dial two-line intersection was rejected as ill-conditioned).
+    // Both dials' axis fits agree with their own independently-fit hub-ring
+    // centre to within ~1.5px (left) / ~3.3px (right) - see pivot_final.json.
+    // Pivots were measured in each dial's own 540x540 local crop (register.py
+    // CROP_HALF=270 around the master-px bezel centres above); converted to
+    // master-05 full-canvas px by adding each crop's origin (left (51,22),
+    // right (672,22)), then to this table's @1x fractions via
+    // fraction = (pivotMasterPx * plateWidth1x/masterCanvasWidthPx -
+    // meter{L,R}TopLeft1x) / meterComponentSize1x:
+    //   left  true pivot: master px (319.42, 348.21) -> fraction (0.495833, 0.654640)
+    //   right true pivot: master px (943.33, 355.96) -> fraction (0.504598, 0.676279)
+    // Both meters previously shared one fraction pair even though the two
+    // dials' hubs are NOT mirror-symmetric within this box (each dial's own
+    // hub-ring fit differs enough - left vs right local hub centres in
+    // needle_diff/hub_fit_results.json - that a single shared fraction can
+    // only ever be exactly correct for one of them); hence per-meter
+    // constants rather than one shared pair going forward.
+    constexpr float meterLPivotXFraction = 0.495833f;
+    constexpr float meterLPivotYFraction = 0.654640f;
+    constexpr float meterRPivotXFraction = 0.504598f;
+    constexpr float meterRPivotYFraction = 0.676279f;
+
+    // Legacy shared fraction pair - NO LONGER used by PluginEditor.cpp's
+    // AnalogMeter construction (see meterLPivot*/meterRPivot* above), kept
+    // solely because tests/gui/EditorLayoutTests.cpp still references it for
+    // a generic "pivot fraction lies strictly inside (0,1)" sanity bound.
+    // TODO: fold EditorLayoutTests.cpp's check onto the per-meter constants
+    // and drop this pair once that test file is next touched.
     constexpr float meterPivotXFraction = 0.478f;
     constexpr float meterPivotYFraction = 0.666f;
 
