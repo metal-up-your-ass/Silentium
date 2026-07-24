@@ -30,16 +30,24 @@ namespace
         Tick { 1.0f, 25.47f }, Tick { 2.0f, 32.92f }, Tick { 3.0f, 40.39f }
     };
 
-    // Needle FILMSTRIP manifest (v0.3.5) - copied verbatim from
-    // resources/gui/needle-filmstrip-v1.json's provenance record, hardcoded
-    // here per Yves' brief rather than parsed from that .json at runtime
-    // (paint()'s frame-index lookup below is real-time-safe and must not
-    // touch the filesystem). A vertical stack of needleFrameCount already-
+    // Needle FILMSTRIP manifest (v0.3.5, asset revised v0.3.7) - copied
+    // verbatim from resources/gui/needle-filmstrip-v2.json's provenance
+    // record, hardcoded here per Yves' brief rather than parsed from that
+    // .json at runtime (paint()'s frame-index lookup below must not touch
+    // the filesystem). A vertical stack of needleFrameCount already-
     // rotated needleFrameW x needleFrameH frames, ascending angle order,
     // each frame's own pivot at its exact centre (0.5, 0.5) - so drawing a
     // frame into a square destination box centred on this component's
     // pivot reproduces the old single-image AffineTransform rotation
     // exactly, without any live rotation.
+    //
+    // v0.3.7: the frames now carry the FULL through-pivot rod (blade +
+    // counterweight tail, master-diff-extracted) - the v1 strip's blade
+    // ended at the baked angle's frozen hub-occlusion boundary, so the
+    // rotated needle visually disconnected from the pivot (Yves rejection
+    // 2026-07-23). The matching hub OCCLUDER (assets.hubOccluder, drawn
+    // after the needle below) restores the master's own layering: rod in
+    // front of the recess, behind the cap/bar/boss assembly.
     constexpr int needleFrameCount = 96;
     constexpr int needleFrameW = 480;
     constexpr int needleFrameH = 480;
@@ -49,6 +57,22 @@ namespace
     [[maybe_unused]] constexpr int needleRestFrameIndex = 40; // the filmstrip's own "straight up" pose - not consulted at runtime (frame index is always derived from the live angle), kept for provenance
     constexpr float needleHubXFraction = 0.5f;
     constexpr float needleHubYFraction = 0.5f;
+
+    // A needle frame's 480px square corresponds to this many master-render
+    // pixels on screen (needleSizeFraction * meterComponentSize1x *
+    // masterCanvasWidthPx / plateWidth1x = 0.84 * 255 * 1264 / 900) - the
+    // conversion the hub-occluder placement below shares with the
+    // gui-pipeline build scripts' scale chain.
+    constexpr float needleDrawSizeMasterPx = 300.832f;
+
+    // Hub-occluder placement (v0.3.7) - copied verbatim from
+    // resources/gui/vu-hub-occluder-v1.json's provenance record (pivot-
+    // relative bbox of master-05's bar + cap + boss silhouette, in master
+    // px; extraction: gui-pipeline analysis/needle_diff/rod_and_occluder.py).
+    constexpr float occluderWidthMasterPx = 183.0f;
+    constexpr float occluderHeightMasterPx = 58.0f;
+    constexpr float occluderLeftRelPivotMasterPx = -79.42336f;
+    constexpr float occluderTopRelPivotMasterPx = -23.20854f;
 
     static_assert (needleRestFrameIndex >= 0 && needleRestFrameIndex < needleFrameCount);
 }
@@ -247,6 +271,22 @@ namespace basilica::gui
             g.drawImage (assets.needle,
                         destX, destY, destSize, destSize,
                         0, frameIndex * needleFrameH, needleFrameW, needleFrameH);
+
+            // 4. Hub occluder (v0.3.7) - master-05's own bar + cap + boss
+            // pixels redrawn ON TOP of the needle frame, so the rod passes
+            // visually BEHIND the joint at every angle (the master's own
+            // layering; the blade stays in front of the recess, the tail
+            // emerges below the bar). Placement maps the pivot-relative
+            // master-px bbox through the same scale the needle frame uses.
+            if (assets.hubOccluder.isValid())
+            {
+                const auto s = needleDrawSize / needleDrawSizeMasterPx;
+                g.drawImage (assets.hubOccluder,
+                             juce::Rectangle<float> (pivotX + occluderLeftRelPivotMasterPx * s,
+                                                     pivotY + occluderTopRelPivotMasterPx * s,
+                                                     occluderWidthMasterPx * s,
+                                                     occluderHeightMasterPx * s));
+            }
         }
     }
 

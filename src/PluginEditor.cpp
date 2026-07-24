@@ -112,7 +112,8 @@ namespace
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
         basilica::gui::AnalogMeter::Assets assets;
-        assets.needle = loadImage (BinaryData::needlefilmstripv1_png, BinaryData::needlefilmstripv1_pngSize);
+        assets.needle = loadImage (BinaryData::needlefilmstripv2_png, BinaryData::needlefilmstripv2_pngSize);
+        assets.hubOccluder = loadImage (BinaryData::vuhuboccluderv1_png, BinaryData::vuhuboccluderv1_pngSize);
         return assets;
     }
 
@@ -153,8 +154,8 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     : juce::AudioProcessorEditor (&processorToEdit),
       audioProcessor (processorToEdit),
       presetBar (initLocalisationThenGetPresetManager (processorToEdit)),
-      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter", 0.0f, meterPivotXFraction, meterPivotYFraction),
-      inputLevelMeter (makeMeterAssets(), "Input Level meter", 1.0f, meterPivotXFraction, meterPivotYFraction)
+      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter", 0.0f, meterLPivotXFraction, meterLPivotYFraction),
+      inputLevelMeter (makeMeterAssets(), "Input Level meter", 1.0f, meterRPivotXFraction, meterRPivotYFraction)
 {
     setLookAndFeel (&lookAndFeel);
 

@@ -124,17 +124,29 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     resources/gui/master-05.png
     resources/gui/master-06.png
     resources/gui/master-glow-dim.png
-    # Rotating VU needle overlay - v0.3.5 replaces the single-image
-    # AffineTransform-rotated needle (vu-needle-master-v3.png, still on disk
-    # but no longer embedded) with a pre-rendered FILMSTRIP: a vertical
-    # stack of 96 already-rotated 480x480 frames (-32.0deg..+44.0deg,
-    # 0.8deg/frame, rest/0deg = frame 40), each with its pivot at the
-    # frame's exact centre. AnalogMeter::paint() now does a frame-index
-    # lookup + straight source-rect blit instead of a live rotation - see
-    # AnalogMeter.cpp's docs for the manifest constants (hardcoded there,
-    # not parsed from resources/gui/needle-filmstrip-v1.json at runtime;
-    # that .json ships alongside the PNG purely for provenance).
-    resources/gui/needle-filmstrip-v1.png
+    # Rotating VU needle overlay - v0.3.7 filmstrip v2 (replaces v1, which
+    # froze the baked angle's hub-occlusion boundary into every frame so
+    # the rotated needle visually disconnected from the pivot - Yves
+    # rejection 2026-07-23). v2 carries the FULL through-pivot rod (blade +
+    # counterweight tail on the far side, both master-diff-extracted from
+    # master-03's own pixels; only the cap-hidden mid-span is bridged with
+    # the rod's own cross-section profile) plus a baked fixed-row clip
+    # where the glass-band top rim occludes the rod. Same manifest as v1:
+    # 96 already-rotated 480x480 frames (-32.0deg..+44.0deg, 0.8deg/frame,
+    # rest/0deg = frame 40), pivot at each frame's exact centre.
+    # AnalogMeter::paint() does a frame-index lookup + source-rect blit;
+    # manifest constants are hardcoded there (the .json ships alongside the
+    # PNG purely for provenance). Built by gui-pipeline
+    # analysis/needle_diff/rod_and_occluder.py.
+    resources/gui/needle-filmstrip-v2.png
+    # Hub occluder (v0.3.7) - master-05's own anchor-bar + cap-disc + boss-
+    # cylinder pixels, alpha-masked to that assembly's silhouette and drawn
+    # ON TOP of the needle frame by AnalogMeter::paint(), so the rod passes
+    # visually BEHIND the joint at every angle (exactly the master's own
+    # layering: blade in front of the recess, under the cap; tail emerging
+    # below the bar). Pivot-relative placement constants hardcoded in
+    # AnalogMeter.cpp from vu-hub-occluder-v1.json (provenance only).
+    resources/gui/vu-hub-occluder-v1.png
     # Peak-LED overlay - v0.3.6 replaces led-v4.png (a hand-authored/
     # generated asset, drawn INSIDE the dial over the tick scale - wrong
     # position AND provenance per Yves' master-03 reference) with

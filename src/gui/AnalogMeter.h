@@ -47,7 +47,17 @@ namespace basilica::gui
             // and paint()'s frame-index lookup. Kept named "needle" (not
             // renamed to e.g. needleStrip) to minimise churn at this call
             // site's one caller (PluginEditor.cpp's makeMeterAssets()).
+            // v0.3.7: the frames carry the full through-pivot rod (blade +
+            // counterweight tail) - see the manifest docs in the .cpp.
             juce::Image needle;
+
+            // v0.3.7: master-05's bar + cap-disc + boss-cylinder pixels,
+            // alpha-masked to that assembly's silhouette
+            // (vu-hub-occluder-v1.png) and drawn ON TOP of the needle
+            // frame by paint(), so the rod passes visually BEHIND the
+            // joint at every angle. May be left invalid (skips the draw -
+            // the rod then sits fully in front, the pre-v0.3.7 look).
+            juce::Image hubOccluder;
 
             // v0.3.6: the peak-LED IMAGE is no longer owned/drawn here - per
             // Yves' master-03 reference, the LED sits on the PLATE outside

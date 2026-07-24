@@ -17,6 +17,8 @@ single master, v0.3.3's true-component-assembly `*-v4.png` family) and are
 now fully dead weight:
 
 ```
+resources/gui/needle-filmstrip-v1.png
+resources/gui/needle-filmstrip-v1.json
 resources/gui/faceplate-silentium-v4-base.png
 resources/gui/reflection-v4.png
 resources/gui/tube-glow-v4.png
@@ -82,7 +84,8 @@ independent of the Filmstrip*/RotatingImageKnob cleanup.
 ## One-liner for Yves
 
 ```sh
-git rm resources/gui/faceplate-silentium-v4-base.png resources/gui/reflection-v4.png \
+git rm resources/gui/needle-filmstrip-v1.png resources/gui/needle-filmstrip-v1.json \
+  resources/gui/faceplate-silentium-v4-base.png resources/gui/reflection-v4.png \
   resources/gui/tube-glow-v4.png resources/gui/rose-emblem-v4.png resources/gui/vu-face-v4.png \
   resources/gui/knob-v4.png resources/gui/screw-v4.png resources/gui/faceplate-silentium-v3.png \
   resources/gui/faceplate_silentium_v2_1800x1200.png resources/gui/faceplate_silentium_v2_900x600.png \
